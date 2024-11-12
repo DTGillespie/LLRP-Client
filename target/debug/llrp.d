@@ -1,1 +1,1 @@
-C:\repos\guardian-server\llrp\target\debug\llrp.exe: C:\repos\guardian-server\llrp\src\client.rs C:\repos\guardian-server\llrp\src\llrp.rs C:\repos\guardian-server\llrp\src\main.rs
+C:\repos\LLRP-Client\target\debug\llrp.exe: C:\repos\LLRP-Client\src\client.rs C:\repos\LLRP-Client\src\llrp.rs C:\repos\LLRP-Client\src\main.rs

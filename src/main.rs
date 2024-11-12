@@ -1,7 +1,7 @@
 mod llrp;
 mod client;
 
-use std::{ptr::null, time::{Duration, Instant}};
+use std::time::{Duration, Instant};
 
 use client::LlrpClient;
 use tokio;
@@ -15,7 +15,6 @@ async fn main() {
     Ok(mut client) => {
       println!("Connected to LLRP reader: {}", addr);
 
-      let mut protocol_version = -1;
       let rospec_id = 1;
       let mut message_id = 1001;
       let mut next_message_id = || {
@@ -24,17 +23,6 @@ async fn main() {
         current_id
       };
 
-      match client.perform_version_negotiation(&mut message_id).await {
-        Ok(protocol_version) => {
-          protocol_version = protocol_version;
-        },
-        Err(e) => {
-          eprintln!("Version negotiation failed: {}", e);
-          return;
-        }
-      }
-
-      /*
       if let Err(e) = client.send_enable_events_and_reports(next_message_id()).await {
         eprintln!("Failed to send ENABLE_EVENTS_AND_REPORTS: {}", e);
       }
@@ -47,32 +35,41 @@ async fn main() {
         eprintln!("Failed to send StartROSpec: {}", e)
       }
 
-      loop {
-        
-        /*
-        if last_keep_alive.elapsed().as_secs() >= 5 {
-          if let Err(e) = client.send_keep_alive(next_message_id()).await {
-            eprintln!("Failed to send KEEP_ALIVE: {}", e);
-          }
-          last_keep_alive = Instant::now();
-        }
-        */
+      let mut last_keep_alive = Instant::now();
 
-        match client.receive_message().await {
-          Ok(msg) => {
-            if msg.message_type == RO_ACCESS_REPORT {
-              println!("Processed Tag Report.");
+      if tokio::time::timeout(Duration::from_millis(1000), async {
+        loop {
+          
+          if last_keep_alive.elapsed().as_secs() >= 5 {
+            if let Err(e) = client.send_keep_alive(next_message_id()).await {
+              eprintln!("Failed to send KEEP_ALIVE: {}", e);
+            }
+            last_keep_alive = Instant::now();
+          }
+  
+          match client.receive_message().await {
+            Ok(msg) => {
+              if msg.message_type == RO_ACCESS_REPORT {
+                println!("Processed Tag Report.");
+              }
+            }
+            Err(e) => {
+              eprintln!("Error receiving message: {}", e);
+              break;
             }
           }
-          Err(e) => {
-            eprintln!("Error receiving message: {}", e);
-            break;
-          }
         }
-
-        tokio::time::sleep(Duration::from_millis(25)).await;
+      }).await.is_err() {
+        println!("Loop timed out");
       }
-      */
+
+      if let Err(e) = client.send_stop_rospec(next_message_id(), rospec_id).await {
+        eprintln!("Failed to send StopROSpec: {}", e)
+      }
+
+      if let Err(e) = client.send_close_connection(next_message_id()).await {
+        eprintln!("Failed to send CLOSE_CONNECTION: {}", e);
+      }
     }
 
     Err(e) => {
