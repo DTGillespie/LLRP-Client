@@ -2,36 +2,36 @@ use bytes::{BytesMut, Buf, BufMut};
 use std::io::{self, Error, ErrorKind};
 
 // Reader Operation (RO) Message Type Enum
-pub const GET_READER_CAPABILITIES          : u16 = 1;
-pub const GET_READER_CAPABILITIES_RESPONSE : u16 = 11;
-pub const GET_READER_CONFIG                : u16 = 2;
-pub const GET_READER_CONFIG_RESPONSE       : u16 = 12;
-pub const SET_READER_CONFIG                : u16 = 3;
-pub const SET_READER_CONFIG_RESPONSE       : u16 = 13;
-pub const CLOSE_CONNECTION                 : u16 = 14;
-pub const CLOSE_CONNECTION_RESPONSE        : u16 = 4;
-pub const ADD_ROSPEC                       : u16 = 20;
-pub const ADD_ROSPEC_RESPONSE              : u16 = 30;
-pub const DELETE_ROSPEC                    : u16 = 21;
-pub const DELETE_ROSPEC_RESPONSE           : u16 = 31;
-pub const START_ROSPEC                     : u16 = 22;
-pub const START_ROSPEC_RESPONSE            : u16 = 32;
-pub const STOP_ROSPEC                      : u16 = 23;
-pub const STOP_ROSPEC_RESPONSE             : u16 = 33;
-pub const ENABLE_ROSPEC                    : u16 = 24;
-pub const ENABLE_ROSPEC_RESPONSE           : u16 = 34;
-pub const DISABLE_ROSPEC                   : u16 = 25;
-pub const DISABLE_ROSPEC_RESPONSE          : u16 = 35;
-pub const GET_ROSPECS                      : u16 = 26;
-pub const GET_ROSPECS_RESPONSE             : u16 = 36;
-pub const GET_REPORT                       : u16 = 60;
-pub const RO_ACCESS_REPORT                 : u16 = 61;
-pub const KEEPALIVE                        : u16 = 62;
-pub const KEEPALIVE_ACK                    : u16 = 72;
-pub const READER_EVENT_NOTIFICATION        : u16 = 63;
-pub const ENABLE_EVENTS_AND_REPORTS        : u16 = 64;
-pub const ERROR_MESSAGE                    : u16 = 100;
-pub const CUSTOM_MESSAGE                   : u16 = 1023;
+pub const TYPE_GET_READER_CAPABILITIES          : u16 = 1;
+pub const TYPE_GET_READER_CAPABILITIES_RESPONSE : u16 = 11;
+pub const TYPE_GET_READER_CONFIG                : u16 = 2;
+pub const TYPE_GET_READER_CONFIG_RESPONSE       : u16 = 12;
+pub const TYPE_SET_READER_CONFIG                : u16 = 3;
+pub const TYPE_SET_READER_CONFIG_RESPONSE       : u16 = 13;
+pub const TYPE_CLOSE_CONNECTION                 : u16 = 14;
+pub const TYPE_CLOSE_CONNECTION_RESPONSE        : u16 = 4;
+pub const TYPE_ADD_ROSPEC                       : u16 = 20;
+pub const TYPE_ADD_ROSPEC_RESPONSE              : u16 = 30;
+pub const TYPE_DELETE_ROSPEC                    : u16 = 21;
+pub const TYPE_DELETE_ROSPEC_RESPONSE           : u16 = 31;
+pub const TYPE_START_ROSPEC                     : u16 = 22;
+pub const TYPE_START_ROSPEC_RESPONSE            : u16 = 32;
+pub const TYPE_STOP_ROSPEC                      : u16 = 23;
+pub const TYPE_STOP_ROSPEC_RESPONSE             : u16 = 33;
+pub const TYPE_ENABLE_ROSPEC                    : u16 = 24;
+pub const TYPE_ENABLE_ROSPEC_RESPONSE           : u16 = 34;
+pub const TYPE_DISABLE_ROSPEC                   : u16 = 25;
+pub const TYPE_DISABLE_ROSPEC_RESPONSE          : u16 = 35;
+pub const TYPE_GET_ROSPECS                      : u16 = 26;
+pub const TYPE_GET_ROSPECS_RESPONSE             : u16 = 36;
+pub const TYPE_GET_REPORT                       : u16 = 60;
+pub const TYPE_RO_ACCESS_REPORT                 : u16 = 61;
+pub const TYPE_KEEPALIVE                        : u16 = 62;
+pub const TYPE_KEEPALIVE_ACK                    : u16 = 72;
+pub const TYPE_READER_EVENT_NOTIFICATION        : u16 = 63;
+pub const TYPE_ENABLE_EVENTS_AND_REPORTS        : u16 = 64;
+pub const TYPE_ERROR_MESSAGE                    : u16 = 100;
+pub const TYPE_CUSTOM_MESSAGE                   : u16 = 1023;
 
 // Params
 pub const PARAM_UTC_TIME_STAMP                        : u16 = 128;
@@ -81,6 +81,12 @@ pub const PARAM_EVENTS_AND_REPORTS                    : u16 = 226;
 pub const PARAM_RO_REPORT_SPEC                        : u16 = 237;
 pub const PARAM_TAG_REPORT_CONTENT_SELECTOR           : u16 = 238;
 
+#[derive(Debug)]
+struct Parameter {
+  param_type: u16,
+  payload: Vec<Parameter>,
+  fixed_length: u16,
+}
 
 #[derive(Debug)]
 pub struct LlrpMessage {
@@ -103,9 +109,87 @@ impl LlrpMessage {
   }
 
   pub fn new_enable_events_and_reports(message_id: u32) -> Self {
-    LlrpMessage::new(ENABLE_EVENTS_AND_REPORTS, message_id, vec![])
+    LlrpMessage::new(TYPE_ENABLE_EVENTS_AND_REPORTS, message_id, vec![])
   }
 
+  pub fn add_rospec(message_id: u32, rospec_id: u32) -> Self {
+    
+    // ROReportSpec
+    let ro_report_spec = Parameter {
+      param_type: PARAM_RO_REPORT_SPEC,
+      fixed_length: 2,
+      payload: vec![]
+    };
+
+    // AISpec
+    let ai_spec = Parameter {
+      param_type: PARAM_AI_SPEC,
+      fixed_length: 8,
+      payload: vec![]
+    };
+
+    // ROBoundarySpec
+    let ro_boundary_spec = Parameter {
+      param_type: PARAM_RO_BOUNDARY_SPEC,
+      fixed_length: 6,
+      payload: vec![]
+    };
+
+    // ROSpec (root parameter)
+    let ro_spec = Parameter {
+      param_type: PARAM_RO_SPEC,
+      fixed_length: 4,
+      payload: vec![ro_boundary_spec, ai_spec, ro_report_spec]
+    };
+
+    let total_length = calculate_total_length(&ro_spec);
+    let mut payload = BytesMut::with_capacity(total_length as usize);
+
+    fn encode_parameter(param: &Parameter, buffer: &mut BytesMut, rospec_id: u32) {
+      
+      buffer.put_u16(param.param_type);
+      let param_length = calculate_total_length(param);
+      buffer.put_u16(param_length);
+
+      match param.param_type {
+
+        PARAM_RO_SPEC => {
+          buffer.put_u32(rospec_id);
+          buffer.put_u8(0); // Priority
+          buffer.put_u8(0); // CurrentState
+        }
+
+        PARAM_RO_BOUNDARY_SPEC => {
+          buffer.put_u8(0);     // StartTriggerType (Immediate)
+          buffer.put_u8(2);     // StopTriggerType (Duration)
+          buffer.put_u32(1000); // StopTrigger duration in ms
+        }
+
+        PARAM_AI_SPEC => {
+          buffer.put_u16(1);   // Antenna ID
+          buffer.put_u16(0);   // InventoryParameterSpecID
+          buffer.put_u8(0);    // AISpecStopTriggerType
+          buffer.put_u32(100); // AISpecStopTrigger
+        }
+
+        PARAM_RO_REPORT_SPEC => {
+          buffer.put_u8(1); // ReportTrigger (End of ROSpec)
+          buffer.put_u8(1); // ReportContentSelector (TagInfo/EPC)
+        }
+        _ => {}
+      }
+
+      for sub_param in &param.payload {
+        encode_parameter(sub_param, buffer, rospec_id); // Recursive call
+      }
+    };
+
+    encode_parameter(&ro_spec, &mut payload, rospec_id);
+
+    LlrpMessage::new(TYPE_ADD_ROSPEC, message_id, payload.to_vec())
+  }
+
+  /*
   pub fn add_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(32);
 
@@ -137,61 +221,30 @@ impl LlrpMessage {
     payload.put_u8(1);                        // ReportTrigger (End of ROSpec)
     payload.put_u8(1);                        // ReportContentSelector (TagInfo/EPC)
 
-    LlrpMessage::new(ADD_ROSPEC, message_id, payload.to_vec())
-  }
-
-
-  /*
-  pub fn add_rospec(message_id: u32, rospec_id: u32) -> Self {
-    let mut payload = BytesMut::with_capacity(8);
-
-    // ROSpec parameters
-    payload.put_u32(rospec_id); // ROSpecID
-    payload.put_u8(0);          // Priority (0 = Default)
-    payload.put_u8(0);          // CurrentState (0 = Disabled)
-
-    // ROBoundarySpec (Defines the start and stop conditions for the ROSpec)
-    payload.put_u16(1);         // ROBoundarySpec type (custom identifier)
-    payload.put_u8(0);          // StartTriggerType (0 = Immediate)
-    //payload.put_u8(0);        // StopTriggerType (0 = Null - runs indefinitely)
-    payload.put_u8(2);          // StopTriggerType (2 = Duration)
-    payload.put_u32(1000);      // StopTrigger duration in milliseconds
-
-    // AISpec (Air Interface)
-    payload.put_u16(1);         // AISpec type
-    payload.put_u32(1);         // AntennaCount
-    //payload.put_u16(0);       // InventoryParameterSpec ID (0 = Default)
-    payload.put_u16(1);         // InventoryParameterSpec ID (1 = EPC Gen2)
-
-    // ROReportSpec
-    payload.put_u16(1);         // ROReportSpec type (custom identifier)
-    payload.put_u8(1);          // ReportTrigger (0 = None, 1 = end of ROSpec)
-    payload.put_u8(1);          // ReportContentSelector (1 = report TagInfo/EPC)
-
-    LlrpMessage::new(ADD_ROSPEC, message_id, payload.to_vec())
+    LlrpMessage::new(TYPE_ADD_ROSPEC, message_id, payload.to_vec())
   }
   */
 
   pub fn new_start_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
-    LlrpMessage::new(START_ROSPEC, message_id, payload.to_vec())
+    LlrpMessage::new(TYPE_START_ROSPEC, message_id, payload.to_vec())
   }
 
   pub fn new_stop_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
-    LlrpMessage::new(STOP_ROSPEC, message_id, payload.to_vec())
+    LlrpMessage::new(TYPE_STOP_ROSPEC, message_id,   payload.to_vec())
   }
 
   pub fn new_delete_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
-    LlrpMessage::new(DELETE_ROSPEC, message_id, payload.to_vec())
+    LlrpMessage::new(TYPE_DELETE_ROSPEC, message_id, payload.to_vec())
   }
 
   pub fn new_close_connection(message_id: u32) -> Self {
-    LlrpMessage::new(CLOSE_CONNECTION , message_id, vec![])
+    LlrpMessage::new(TYPE_CLOSE_CONNECTION , message_id, vec![])
   }
 
   pub fn encode(&self) -> BytesMut {
@@ -249,6 +302,16 @@ impl LlrpMessage {
       payload,
     })
   }
+}
+
+fn calculate_total_length(param: &Parameter) -> u16 {
+  let mut total_length = 4 + param.fixed_length;
+
+  for sub_param in &param.payload {
+    total_length += calculate_total_length(sub_param);
+  }
+
+  total_length
 }
 
 pub struct TagReport {

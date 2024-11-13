@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use client::LlrpClient;
 use tokio;
-use crate::llrp::{RO_ACCESS_REPORT};
+use crate::llrp::{TYPE_RO_ACCESS_REPORT};
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +22,12 @@ async fn main() {
         message_id += 1;
         current_id
       };
+
+      /*
+      if let Err(e) = client.send_delete_rospec(next_message_id(), 0).await {
+        eprintln!("Failed to send DeleteROSpec: {}", e);
+      }
+      */
 
       if let Err(e) = client.send_enable_events_and_reports(next_message_id()).await {
         eprintln!("Failed to send ENABLE_EVENTS_AND_REPORTS: {}", e);
@@ -49,7 +55,7 @@ async fn main() {
   
           match client.receive_message().await {
             Ok(msg) => {
-              if msg.message_type == RO_ACCESS_REPORT {
+              if msg.message_type == TYPE_RO_ACCESS_REPORT {
                 println!("Processed Tag Report.");
               }
             }

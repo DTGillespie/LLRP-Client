@@ -2,7 +2,7 @@ use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use bytes::{BytesMut, Buf, BufMut};
 use std::error::Error;
-use crate::llrp::{LlrpMessage, TagReport, RO_ACCESS_REPORT};
+use crate::llrp::{LlrpMessage, TagReport, TYPE_RO_ACCESS_REPORT};
 
 pub struct LlrpClient {
   stream: TcpStream,
@@ -100,7 +100,7 @@ impl LlrpClient {
     let llrp_message = LlrpMessage::decode(&mut buf)?;
     println!("Received message with type: {}", llrp_message.message_type);
 
-    if llrp_message.message_type == RO_ACCESS_REPORT {
+    if llrp_message.message_type == TYPE_RO_ACCESS_REPORT {
       println!("Received Tag Report:");
       let mut payload_buf = BytesMut::from(&llrp_message.payload[..]);
       while !payload_buf.is_empty() {
