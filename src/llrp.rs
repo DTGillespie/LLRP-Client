@@ -189,42 +189,6 @@ impl LlrpMessage {
     LlrpMessage::new(TYPE_ADD_ROSPEC, message_id, payload.to_vec())
   }
 
-  /*
-  pub fn add_rospec(message_id: u32, rospec_id: u32) -> Self {
-    let mut payload = BytesMut::with_capacity(32);
-
-    // ROSpecID, Priority, and CurrentState
-    payload.put_u16(PARAM_RO_SPEC);      // ROSpec Parameter Type (16 bits)
-    payload.put_u16(10);                 // Length (16 bits)
-    payload.put_u32(rospec_id);          // ROSpecID
-    payload.put_u8(0);                   // Priority
-    payload.put_u8(0);                   // CurrentState
-
-    // ROBoundarySpec (StartTrigger and StopTrigger)
-    payload.put_u16(PARAM_RO_BOUNDARY_SPEC);  // ROBoundarySpec Parameter Type (16 bits)
-    payload.put_u16(8);                       // Length (16 bits)
-    payload.put_u8(0);                        // StartTriggerType (Immediate)
-    payload.put_u8(2);                        // StopTriggerType (Duration)
-    payload.put_u32(1000);                    // StopTrigger duration (milliseconds)
-
-    // AISpec
-    payload.put_u16(PARAM_AI_SPEC);           // AISpec Parameter Type (16 bits)
-    payload.put_u16(10);                      // Length (16 bits)
-    payload.put_u16(1);                       // AntennaID
-    payload.put_u16(0);                       // InventoryParameterSpecID
-    payload.put_u8(0);                        // AISpecStopTriggerType
-    payload.put_u32(100);                     // AISpecStopTrigger duration
-
-    // ROReportSpec
-    payload.put_u16(PARAM_RO_REPORT_SPEC);    // ROReportSpec Parameter Type (16 bits)
-    payload.put_u16(6);                       // Length (16 bits)
-    payload.put_u8(1);                        // ReportTrigger (End of ROSpec)
-    payload.put_u8(1);                        // ReportContentSelector (TagInfo/EPC)
-
-    LlrpMessage::new(TYPE_ADD_ROSPEC, message_id, payload.to_vec())
-  }
-  */
-
   pub fn new_start_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
@@ -261,22 +225,6 @@ impl LlrpMessage {
 
     buffer
   }
-
-  /*
-  pub fn encode(&self) -> BytesMut {
-    let mut buffer = BytesMut::with_capacity(self.message_length as usize);
-
-    let version = 1; // Assuming LLRP version 1.0
-    let version_and_type = ((version & 0x7) << 10) | (self.message_type & 0x3FF);
-
-    buffer.put_u16(version_and_type as u16);
-    buffer.put_u32(self.message_length);
-    buffer.put_u32(self.message_id);
-    buffer.extend_from_slice(&self.payload);
-
-    buffer
-  }
-  */
 
   pub fn decode(buf: &mut BytesMut) -> io::Result<Self> {
     if buf.len() < 10 {
