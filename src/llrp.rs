@@ -143,9 +143,8 @@ impl LlrpMessage {
     fn encode_parameter(param: &Parameter, buffer: &mut BytesMut, rospec_id: u32) {
       
       let initial_length_pos = buffer.len();
-      //let mut param_buffer = BytesMut::new();
       buffer.put_u16(param.param_type);
-      buffer.put_u16(0); // Temp length (Still need to post-process the length after allocating the parameters)
+      buffer.put_u16(0); // Temp length (post processed)
 
       match param.param_type {
 
@@ -163,33 +162,32 @@ impl LlrpMessage {
 
           // Fields
           buffer.put_u8(1); // Immediate
-          //buffer.put_u8(0); // No trigger/Reserved/Optional
 
           // ROSpecStopTrigger
           buffer.put_u16(PARAM_RO_SPEC_STOP_TRIGGER);
           buffer.put_u16(9); // Length
           
           // Fields
-          buffer.put_u8(0); // No stop trigger
-          buffer.put_u32(0); // Optional for null stop-trigger
+          buffer.put_u8(0);  // No stop trigger
+          buffer.put_u32(0); // Padding/Optional (Probably required when ROSpecStopTrigger type is not 0)
         }
 
-        /*
         PARAM_AI_SPEC => {
-          buffer.put_u16(1);   // Antenna ID
-          buffer.put_u16(0);   // InventoryParameterSpecID
-          buffer.put_u8(0);    // AISpecStopTriggerType
-          buffer.put_u32(100); // AISpecStopTrigger
-        }
-        */
-        PARAM_AI_SPEC => {
+
+          let antenna_ids = vec![0]; // 0 - Use all antennas
+
+          // AntennaID Array (Allocated before AISpecStopTrigger)
+          for antenna_id in antenna_ids {
+            buffer.put_u16(antenna_id);
+          }
 
           // AISpecStopTrigger
           buffer.put_u16(PARAM_AI_SPEC_STOP_TRIGGER);
-          buffer.put_u16(5);
+          buffer.put_u16(9);
 
           // Fields
-          buffer.put_u8(0); // (Null - Stop when ROSpec is done)
+          buffer.put_u8(0);  // (Null - Stop when ROSpec is done)
+          buffer.put_u32(0); // Padding/Optional fields (Probably required when AIStopTrigger type is not 0)
         }
 
         PARAM_RO_REPORT_SPEC => {
