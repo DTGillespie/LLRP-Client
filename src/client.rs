@@ -1,70 +1,143 @@
+use bytes::BytesMut;
+use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpStream;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
-use bytes::{BytesMut, Buf, BufMut};
 use std::error::Error;
-use crate::llrp::{LlrpMessage, TagReport, TYPE_RO_ACCESS_REPORT};
+use bytes::Buf;
+
+use crate::llrp::LlrpMessage;
+use crate::llrp::{
+  TYPE_KEEPALIVE, 
+  TYPE_CLOSE_CONNECTION,
+  TYPE_ADD_ROSPEC_RESPONSE,
+};
 
 pub struct LlrpClient {
   stream: TcpStream,
+  message_id: u32
 }
 
 impl LlrpClient {
-  
-  pub async fn connect(addr: &str) -> Result<Self, Box<dyn Error>> {
+
+  pub async fn connect(addr: &str) -> io::Result<Self> {
     let stream = TcpStream::connect(addr).await?;
-    Ok(LlrpClient { stream })
+    println!("Client connected: {}", addr);
+    
+    Ok(LlrpClient { stream, message_id: 1001 })
   }
 
-  pub async fn send_keep_alive(&mut self, message_id: u32) -> Result<(), Box<dyn Error>> {
-    let message = LlrpMessage::new(62, message_id, vec![]);
-    self.stream.write_all(&message.encode()).await?;
-    println!("Sent KEEP_ALIVE");
+  pub async fn disconnect(&mut self) -> Result<(), Box<dyn Error>> {
+    self.send_close_connection().await?;
     Ok(())
   }
 
-  pub async fn send_enable_events_and_reports(&mut self, message_id: u32) -> Result<(), Box<dyn Error>> {
+  pub fn next_message_id(&mut self) -> u32 {
+    let current_id = self.message_id;
+    self.message_id += 1;
+    
+    current_id
+  }
+
+  async fn send_close_connection(&mut self) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
+    let message = LlrpMessage::new(TYPE_CLOSE_CONNECTION, message_id, vec![]);
+    self.stream.write_all(&message.encode()).await?;
+
+    println!("Sent CLOSE_CONNECTION");
+
+    //self.receive_response().await?;
+
+    Ok(())
+  }
+
+  pub async fn send_keep_alive(&mut self) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
+    let message = LlrpMessage::new(TYPE_KEEPALIVE, message_id, vec![]);
+    self.stream.write_all(&message.encode()).await?;
+    
+    println!("Sent KEEP_ALIVE");
+
+    //self.receive_response().await?;
+    
+    Ok(())
+  }
+
+  pub async fn send_enable_events_and_reports(&mut self) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+    
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
     self.stream.write_all(&message.encode()).await?;
+    
     println!("Sent ENABLE_EVENTS_AND_REPORTS");
+    
+    //self.receive_response().await?;
+
     Ok(())
   }
 
-  pub async fn send_add_rospec(&mut self, message_id: u32, rospec_id: u32) -> Result<(), Box<dyn Error>> {
-    let message = LlrpMessage::add_rospec(message_id, rospec_id);
+  pub async fn send_add_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+    
+    let message = LlrpMessage::new_add_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-    println!("Sent ROSpec with ID: {}", rospec_id);
+    
+    println!("Sent ADD_ROSPEC with ID: {}", rospec_id);
+
+    //self.receive_response().await?;
+
     Ok(())
   }
 
-  pub async fn send_start_rospec(&mut self, message_id: u32, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+  pub async fn send_start_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
     let message = LlrpMessage::new_start_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-    println!("Sent StartROSpec for ROSpec ID: {}", rospec_id);
+
+    println!("Sent START_RO_SPEC for ROSpec ID: {}", rospec_id);
+
+    //self.receive_response().await?;
+
     Ok(())
   }
 
-  pub async fn send_stop_rospec(&mut self, message_id: u32, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+  pub async fn send_stop_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
     let message = LlrpMessage::new_stop_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-    println!("Sent StopROSpec for ROSpec ID: {}", rospec_id);
+
+    println!("Sent STOP_RO_SPEC for ROSpec ID: {}", rospec_id);
+
+    //self.receive_response().await?;
+
     Ok(())
   }
 
-  pub async fn send_delete_rospec(&mut self, message_id: u32, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+  pub async fn send_delete_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-    println!("Sent DeleteROSpec for ROSpec ID: {}", rospec_id);
+
+    println!("Sent DELETE_RO_SPEC for ROSpec ID: {}", rospec_id);
+
     Ok(())
   }
+  
+  /*
+  async fn receive_response(&mut self) -> Result<(), Box<dyn Error>> {
+    let mut buffer = vec![0u8; 1024];
+    let n = self.stream.read(&mut buffer).await?;
 
-  pub async fn send_close_connection(&mut self, message_id: u32) -> Result<(), Box<dyn Error>> {
-    let message = LlrpMessage::new_close_connection(message_id);
-    self.stream.write_all(&message.encode()).await?;
-    println!("Sent CLOSE_CONNECTION");
+    println!("Received response: {:?}", &buffer[..n]);
+
     Ok(())
   }
+  */
 
-  pub async fn receive_message(&mut self) -> Result<LlrpMessage, Box<dyn Error>> {
+  pub async fn receive_response(&mut self) -> Result<LlrpMessage, Box<dyn Error>> {
     let mut buf = BytesMut::with_capacity(1024);
 
     // Read header (10 bytes)
@@ -98,8 +171,9 @@ impl LlrpClient {
     }
 
     let llrp_message = LlrpMessage::decode(&mut buf)?;
-    println!("Received message with type: {}", llrp_message.message_type);
+    println!("Received message of type: {}", llrp_message.message_type);
 
+    /*
     if llrp_message.message_type == TYPE_RO_ACCESS_REPORT {
       println!("Received Tag Report:");
       let mut payload_buf = BytesMut::from(&llrp_message.payload[..]);
@@ -114,6 +188,7 @@ impl LlrpClient {
     } else {
       println!("Non-tag report message received, type: {}", llrp_message.message_type);
     }
+    */
 
     Ok(llrp_message)
   }

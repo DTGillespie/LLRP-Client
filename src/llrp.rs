@@ -1,7 +1,6 @@
 use bytes::{BytesMut, Buf, BufMut};
 use std::io::{self, Error, ErrorKind};
 
-// Reader Operation (RO) Message Type Enum
 pub const TYPE_GET_READER_CAPABILITIES          : u16 = 1;
 pub const TYPE_GET_READER_CAPABILITIES_RESPONSE : u16 = 11;
 pub const TYPE_GET_READER_CONFIG                : u16 = 2;
@@ -33,7 +32,6 @@ pub const TYPE_ENABLE_EVENTS_AND_REPORTS        : u16 = 64;
 pub const TYPE_ERROR_MESSAGE                    : u16 = 100;
 pub const TYPE_CUSTOM_MESSAGE                   : u16 = 1023;
 
-// Params
 pub const PARAM_UTC_TIME_STAMP                        : u16 = 128;
 pub const PARAM_UPTIME                                : u16 = 129;
 pub const PARAM_GENERAL_DEVICE_CAPABILITIES           : u16 = 137;
@@ -85,7 +83,6 @@ pub const PARAM_TAG_REPORT_CONTENT_SELECTOR           : u16 = 238;
 struct Parameter {
   param_type: u16,
   payload: Vec<Parameter>,
-  fixed_length: u16,
 }
 
 #[derive(Debug)]
@@ -112,44 +109,43 @@ impl LlrpMessage {
     LlrpMessage::new(TYPE_ENABLE_EVENTS_AND_REPORTS, message_id, vec![])
   }
 
-  pub fn add_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_add_rospec(message_id: u32, rospec_id: u32) -> Self {
     
+    // ROBoundarySpec
+    let ro_boundary_spec = Parameter {
+      param_type: PARAM_RO_BOUNDARY_SPEC,
+      payload: vec![]
+    };
+
     // ROReportSpec
     let ro_report_spec = Parameter {
       param_type: PARAM_RO_REPORT_SPEC,
-      fixed_length: 2,
       payload: vec![]
     };
 
     // AISpec
     let ai_spec = Parameter {
       param_type: PARAM_AI_SPEC,
-      fixed_length: 8,
-      payload: vec![]
-    };
-
-    // ROBoundarySpec
-    let ro_boundary_spec = Parameter {
-      param_type: PARAM_RO_BOUNDARY_SPEC,
-      fixed_length: 6,
       payload: vec![]
     };
 
     // ROSpec (root parameter)
     let ro_spec = Parameter {
       param_type: PARAM_RO_SPEC,
-      fixed_length: 4,
       payload: vec![ro_boundary_spec, ai_spec, ro_report_spec]
     };
 
-    let total_length = calculate_total_length(&ro_spec);
-    let mut payload = BytesMut::with_capacity(total_length as usize);
+    //let total_length = calculate_total_length(&ro_spec);
+    //let mut payload = BytesMut::with_capacity(total_length as usize);
+
+    let mut payload = BytesMut::new();
 
     fn encode_parameter(param: &Parameter, buffer: &mut BytesMut, rospec_id: u32) {
       
+      let initial_length_pos = buffer.len();
+      //let mut param_buffer = BytesMut::new();
       buffer.put_u16(param.param_type);
-      let param_length = calculate_total_length(param);
-      buffer.put_u16(param_length);
+      buffer.put_u16(0); // Temp length (Still need to post-process the length after allocating the parameters)
 
       match param.param_type {
 
@@ -160,16 +156,40 @@ impl LlrpMessage {
         }
 
         PARAM_RO_BOUNDARY_SPEC => {
-          buffer.put_u8(0);     // StartTriggerType (Immediate)
-          buffer.put_u8(2);     // StopTriggerType (Duration)
-          buffer.put_u32(1000); // StopTrigger duration in ms
+
+          // ROSpecStartTrigger
+          buffer.put_u16(PARAM_RO_SPEC_START_TRIGGER);
+          buffer.put_u16(5); // Length
+
+          // Fields
+          buffer.put_u8(1); // Immediate
+          //buffer.put_u8(0); // No trigger/Reserved/Optional
+
+          // ROSpecStopTrigger
+          buffer.put_u16(PARAM_RO_SPEC_STOP_TRIGGER);
+          buffer.put_u16(9); // Length
+          
+          // Fields
+          buffer.put_u8(0); // No stop trigger
+          buffer.put_u32(0); // Optional for null stop-trigger
         }
 
+        /*
         PARAM_AI_SPEC => {
           buffer.put_u16(1);   // Antenna ID
           buffer.put_u16(0);   // InventoryParameterSpecID
           buffer.put_u8(0);    // AISpecStopTriggerType
           buffer.put_u32(100); // AISpecStopTrigger
+        }
+        */
+        PARAM_AI_SPEC => {
+
+          // AISpecStopTrigger
+          buffer.put_u16(PARAM_AI_SPEC_STOP_TRIGGER);
+          buffer.put_u16(5);
+
+          // Fields
+          buffer.put_u8(0); // (Null - Stop when ROSpec is done)
         }
 
         PARAM_RO_REPORT_SPEC => {
@@ -182,6 +202,11 @@ impl LlrpMessage {
       for sub_param in &param.payload {
         encode_parameter(sub_param, buffer, rospec_id); // Recursive call
       }
+
+      let final_length_pos = buffer.len();
+      let actual_length = (final_length_pos - initial_length_pos) as u16;
+
+      buffer[initial_length_pos + 2..initial_length_pos + 4].copy_from_slice(&actual_length.to_be_bytes());
     };
 
     encode_parameter(&ro_spec, &mut payload, rospec_id);
@@ -253,7 +278,30 @@ impl LlrpMessage {
 }
 
 fn calculate_total_length(param: &Parameter) -> u16 {
-  let mut total_length = 4 + param.fixed_length;
+  let mut total_length = 4;
+
+  for sub_param in &param.payload {
+      total_length += calculate_total_length(sub_param);
+  }
+
+  total_length += param.payload.len() as u16;
+
+  total_length
+}
+
+/*
+fn calculate_param_length(buffer: &BytesMut) -> u16 {
+  let mut total_length = 4; // 4-bytes for Type (2 bytes) and Length (2 bytes)
+  total_length += buffer.len() as u16;
+
+  total_length
+}
+*/
+
+/*
+fn calculate_total_length(param: &Parameter) -> u16 {
+  let mut total_length = 4;
+  total_length += param.fixed_length;
 
   for sub_param in &param.payload {
     total_length += calculate_total_length(sub_param);
@@ -261,6 +309,7 @@ fn calculate_total_length(param: &Parameter) -> u16 {
 
   total_length
 }
+*/
 
 pub struct TagReport {
   pub epc: Vec<u8>, // EPC (Electronic Product Code) data

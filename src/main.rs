@@ -4,8 +4,7 @@ mod client;
 use std::time::{Duration, Instant};
 
 use client::LlrpClient;
-use tokio;
-use crate::llrp::{TYPE_RO_ACCESS_REPORT};
+use tokio::{self};
 
 #[tokio::main]
 async fn main() {
@@ -15,67 +14,54 @@ async fn main() {
     Ok(mut client) => {
       println!("Connected to LLRP reader: {}", addr);
 
+      let all_ro_specs = 0;
       let rospec_id = 1;
-      let mut message_id = 1001;
-      let mut next_message_id = || {
-        let current_id = message_id;
-        message_id += 1;
-        current_id
-      };
 
       /*
-      if let Err(e) = client.send_delete_rospec(next_message_id(), 0).await {
-        eprintln!("Failed to send DeleteROSpec: {}", e);
+      if let Err(e) = client.send_delete_rospec(all_ro_specs).await {
+        eprintln!("Failed to send DELETE_RO_SPEC: {}", e);
       }
-      */
 
-      if let Err(e) = client.send_enable_events_and_reports(next_message_id()).await {
+      if let Err(e) = client.send_enable_events_and_reports().await {
         eprintln!("Failed to send ENABLE_EVENTS_AND_REPORTS: {}", e);
       }
-
-      if let Err(e) = client.send_add_rospec(next_message_id(), rospec_id).await {
+      */
+      if let Err(e) = client.send_add_rospec(rospec_id).await {
         eprintln!("Failed to send ROSpec: {}", e);
       }
 
-      if let Err(e) = client.send_start_rospec(next_message_id(), rospec_id).await {
+      /*
+      if let Err(e) = client.send_start_rospec(rospec_id).await {
         eprintln!("Failed to send StartROSpec: {}", e)
       }
 
       let mut last_keep_alive = Instant::now();
 
-      if tokio::time::timeout(Duration::from_millis(1000), async {
-        loop {
+      let loop_start = Instant::now();
+      loop {
           
-          if last_keep_alive.elapsed().as_secs() >= 5 {
-            if let Err(e) = client.send_keep_alive(next_message_id()).await {
-              eprintln!("Failed to send KEEP_ALIVE: {}", e);
-            }
-            last_keep_alive = Instant::now();
-          }
-  
-          match client.receive_message().await {
-            Ok(msg) => {
-              if msg.message_type == TYPE_RO_ACCESS_REPORT {
-                println!("Processed Tag Report.");
-              }
-            }
-            Err(e) => {
-              eprintln!("Error receiving message: {}", e);
-              break;
-            }
-          }
+        if loop_start.elapsed().as_millis() >= 1000 {
+          break;
         }
-      }).await.is_err() {
-        println!("Loop timed out");
+
+        if last_keep_alive.elapsed().as_secs() >= 5 {
+          if let Err(e) = client.send_keep_alive().await {
+            eprintln!("Failed to send KEEP_ALIVE: {}", e);
+          }
+          last_keep_alive = Instant::now();
+        }
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
       }
 
-      if let Err(e) = client.send_stop_rospec(next_message_id(), rospec_id).await {
+      if let Err(e) = client.send_stop_rospec(rospec_id).await {
         eprintln!("Failed to send StopROSpec: {}", e)
       }
 
-      if let Err(e) = client.send_close_connection(next_message_id()).await {
+      if let Err(e) = client.disconnect().await {
         eprintln!("Failed to send CLOSE_CONNECTION: {}", e);
       }
+      */
     }
 
     Err(e) => {
