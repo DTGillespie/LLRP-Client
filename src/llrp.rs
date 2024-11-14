@@ -117,15 +117,15 @@ impl LlrpMessage {
       payload: vec![]
     };
 
-    // ROReportSpec
-    let ro_report_spec = Parameter {
-      param_type: PARAM_RO_REPORT_SPEC,
-      payload: vec![]
-    };
-
     // AISpec
     let ai_spec = Parameter {
       param_type: PARAM_AI_SPEC,
+      payload: vec![]
+    };
+
+    // ROReportSpec
+    let ro_report_spec = Parameter {
+      param_type: PARAM_RO_REPORT_SPEC,
       payload: vec![]
     };
 
@@ -134,9 +134,6 @@ impl LlrpMessage {
       param_type: PARAM_RO_SPEC,
       payload: vec![ro_boundary_spec, ai_spec, ro_report_spec]
     };
-
-    //let total_length = calculate_total_length(&ro_spec);
-    //let mut payload = BytesMut::with_capacity(total_length as usize);
 
     let mut payload = BytesMut::new();
 
@@ -286,28 +283,6 @@ fn calculate_total_length(param: &Parameter) -> u16 {
 
   total_length
 }
-
-/*
-fn calculate_param_length(buffer: &BytesMut) -> u16 {
-  let mut total_length = 4; // 4-bytes for Type (2 bytes) and Length (2 bytes)
-  total_length += buffer.len() as u16;
-
-  total_length
-}
-*/
-
-/*
-fn calculate_total_length(param: &Parameter) -> u16 {
-  let mut total_length = 4;
-  total_length += param.fixed_length;
-
-  for sub_param in &param.payload {
-    total_length += calculate_total_length(sub_param);
-  }
-
-  total_length
-}
-*/
 
 pub struct TagReport {
   pub epc: Vec<u8>, // EPC (Electronic Product Code) data
