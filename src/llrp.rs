@@ -1,6 +1,8 @@
 use bytes::{BytesMut, Buf, BufMut};
 use std::io::{self, Error, ErrorKind};
 
+// Message type constants for LLRP operations.
+// Used to define various types of LLRP messages and their responses.
 pub const TYPE_GET_READER_CAPABILITIES          : u16 = 1;
 pub const TYPE_GET_READER_CAPABILITIES_RESPONSE : u16 = 11;
 pub const TYPE_GET_READER_CONFIG                : u16 = 2;
@@ -32,6 +34,8 @@ pub const TYPE_ENABLE_EVENTS_AND_REPORTS        : u16 = 64;
 pub const TYPE_ERROR_MESSAGE                    : u16 = 100;
 pub const TYPE_CUSTOM_MESSAGE                   : u16 = 1023;
 
+// Parameter type constants for LLRP parameters.
+// Definss the types of parameters used in LLRP messages.
 pub const PARAM_UTC_TIME_STAMP                        : u16 = 128;
 pub const PARAM_UPTIME                                : u16 = 129;
 pub const PARAM_GENERAL_DEVICE_CAPABILITIES           : u16 = 137;
@@ -79,22 +83,47 @@ pub const PARAM_EVENTS_AND_REPORTS                    : u16 = 226;
 pub const PARAM_RO_REPORT_SPEC                        : u16 = 237;
 pub const PARAM_TAG_REPORT_CONTENT_SELECTOR           : u16 = 238;
 
-#[derive(Debug)]
-struct Parameter {
-  param_type: u16,
-  payload: Vec<Parameter>,
-}
-
+/// Represents an LLRP-compliant message.
+///
+/// This struct encapsulates the core components of an LLRP message,
+/// including its type, length, ID, and payload.
+///
+/// Fields:
+/// - `message_type`: The type of the LLRP message.
+/// - `message_length`: The total length of the message, including the header and payload.
+/// - `message_id`: A unique identifier for the message.
+/// - `payload`: The binary payload of the message.
 #[derive(Debug)]
 pub struct LlrpMessage {
+
   pub message_type   : u16,
   pub message_length : u32,
   pub message_id     : u32,
   pub payload        : Vec<u8>
 }
 
-impl LlrpMessage {
+/// Represents a basic LLRP TLV (Type-Length-Value) parameter.
+///
+/// This structure supports nested parameters, allowing complex
+/// parameter hierarchies to be constructed and encoded.
+///
+/// Fields:
+/// - `param_type`: The 16-bit type enumerator for the parameter.
+/// - `payload`: A vector of nested `Parameter` instances.
+#[derive(Debug)]
+struct Parameter {
+  /// Nested-parameter type
+  param_type: u16, 
 
+  // Parameter's value/payload.
+  payload: Vec<Parameter>,
+}
+
+impl LlrpMessage {
+  
+  /// Constructs a new LLRP message with the specified type, ID, and payload.
+  ///
+  /// Automatically calculates the message length based on the payload size.
   pub fn new(message_type: u16, message_id: u32, payload: Vec<u8>) -> Self {
     let message_length = 10 + payload.len() as u32;
     LlrpMessage {
@@ -105,31 +134,36 @@ impl LlrpMessage {
     }
   }
 
+  /// Constructs a new `EnableEventsAndReports` message.
+  ///
+  /// This message enables event and report generation on the reader.
   pub fn new_enable_events_and_reports(message_id: u32) -> Self {
     LlrpMessage::new(TYPE_ENABLE_EVENTS_AND_REPORTS, message_id, vec![])
   }
 
+  /// Constructs a new `AddROSpec` message with the specified ROSpec ID.
+  ///
+  /// The ROSpec includes the following parameters:
+  /// - `ROBoundarySpec`: Specifies start and stop triggers.
+  /// - `AISpec`: Defines antenna configurations and stop triggers.
+  /// - `ROReportSpec`: Configures report generation.
   pub fn new_add_rospec(message_id: u32, rospec_id: u32) -> Self {
     
-    // ROBoundarySpec
     let ro_boundary_spec = Parameter {
       param_type: PARAM_RO_BOUNDARY_SPEC,
       payload: vec![]
     };
 
-    // AISpec
     let ai_spec = Parameter {
       param_type: PARAM_AI_SPEC,
       payload: vec![]
     };
 
-    // ROReportSpec
     let ro_report_spec = Parameter {
       param_type: PARAM_RO_REPORT_SPEC,
       payload: vec![]
     };
 
-    // ROSpec (root parameter)
     let ro_spec = Parameter {
       param_type: PARAM_RO_SPEC,
       payload: vec![ro_boundary_spec, ai_spec, ro_report_spec]
@@ -137,69 +171,231 @@ impl LlrpMessage {
 
     let mut payload = BytesMut::new();
 
+    // Recursive function to encode parameters into the payload.
     fn encode_parameter(param: &Parameter, buffer: &mut BytesMut, rospec_id: u32) {
       
       let initial_length_pos = buffer.len();
       buffer.put_u16(param.param_type);
-      buffer.put_u16(0); // Temp length (post processed)
+      buffer.put_u16(0x0000); // Placeholder for length, updated later.
 
+      // Encode specific fields based on the parameter type.
       match param.param_type {
 
         PARAM_RO_SPEC => {
           buffer.put_u32(rospec_id);
-          buffer.put_u8(0); // Priority
-          buffer.put_u8(0); // CurrentState
+          buffer.put_u8(0x00); // Priority
+          buffer.put_u8(0x00); // CurrentState
         }
 
+        /* LLRP Standard - Release 2.0, 11.2.1.1
+
+          ROBoundarySpecParameter
+
+          ----------
+          ROSpecStartTrigger: ROSpecStartTrigger Parameter
+          ----------
+          ROSpecStopTrigger: ROSpecStopTrigger Parameter
+        */
         PARAM_RO_BOUNDARY_SPEC => {
 
-          // ROSpecStartTrigger
+          /* LLRP Standard - Release 2.0, 11.2.1.1.1
+
+            ROSpecStartTriggerParameter
+
+            ----------
+            ROSpecStartTriggerType: Integer
+            
+            Possible Values:
+
+            0 Null – No start trigger. The only way to start the ROSpec is with a START_ROSPEC from the Client.
+
+            1 Immediate
+
+            2 Periodic
+
+            3 GPI
+            ----------
+            PeriodicTriggerValue: PeriodicTriggerValue Parameter [Optional]. This parameter SHALL be present when ROSpecStartTriggerType = 2.
+            ----------
+            GPITriggerValue: GPITriggerValue Parameter [Optional]. This parameter SHALL be present when ROSpecStartTriggerType = 3.
+          */
           buffer.put_u16(PARAM_RO_SPEC_START_TRIGGER);
-          buffer.put_u16(5); // Length
+          buffer.put_u16(0x0005); // Length
 
-          // Fields
-          buffer.put_u8(1); // Immediate
-
-          // ROSpecStopTrigger
-          buffer.put_u16(PARAM_RO_SPEC_STOP_TRIGGER);
-          buffer.put_u16(9); // Length
+          /* Fields */
           
-          // Fields
-          buffer.put_u8(0);  // No stop trigger
-          buffer.put_u32(0); // Padding/Optional (Probably required when ROSpecStopTrigger type is not 0)
+          //ROSpecStartTriggerType
+          buffer.put_u8(0x01); // 1 - Immediate
+
+          /* LLRP Standard - Release 2.0, 11.2.1.1.4
+
+            ROSpecStopTriggerParameter
+
+            ----------
+            ROSpecStopTriggerType: Integer
+
+            Possible Values:
+
+            0 Null – Stop when all Specs are done (including any looping as required by a LoopSpec parameter), or when
+            preempted, or with a STOP_ROSPEC from the Client.
+
+            1 Duration – Stop after DurationTriggerValue milliseconds, or when all Specs are done
+            (including any looping as required by a LoopSpec parameter), or when preempted, or with a STOP_ROSPEC
+            from the Client.
+
+            2 GPI with a timeout value – Stop when a GPI "fires", or after Timeout milliseconds, or when all Specs are done
+            (including any looping as required by a LoopSpec parameter), or when preempted, or with a STOP_ROSPEC
+            from the Client.
+
+            DurationTriggerValue: Duration in milliseconds. This field is ignored when ROSpecStopTriggerType != 1.
+
+            GPITriggerValue: GPITriggerValue Parameter [Optional]. This parameter SHALL be present when ROSpecStopTriggerType = 2.
+          */
+          buffer.put_u16(PARAM_RO_SPEC_STOP_TRIGGER);
+          buffer.put_u16(0x0009); // Length
+          
+          /* Fields */
+
+          // ROSpecStopTriggerType
+          buffer.put_u8(0x00); // 0 - No stop trigger
+
+          buffer.put_u32(0x00000000); // Null-field padding (Fields not required with ROSpecStoTriggerType=0)
         }
 
+        /* LLRP Standard - Release 2.0, 11.2.2
+
+          AISpec Parameter
+
+          ----------
+          AISpecStopTrigger: <AISpecStopTrigger Parameter>
+          ----------
+          AntennaIDs: Short Array. If this set contains an antenna ID of zero, this AISpec will utilise all the antennas of the Reader.
+          ----------
+          InventoryParameterSpecs: <List of InventoryParameterSpec Parameter>
+          ----------
+          Custom Extension Point List: List of <custom Parameter> [Optional]
+        */
         PARAM_AI_SPEC => {
 
-          let antenna_ids = vec![0]; // 0 - Use all antennas
+          let antenna_ids = vec![0x0000]; // 0 - Use all antennas
 
           // AntennaID Array (Allocated before AISpecStopTrigger)
           for antenna_id in antenna_ids {
             buffer.put_u16(antenna_id);
           }
 
-          // AISpecStopTrigger
-          buffer.put_u16(PARAM_AI_SPEC_STOP_TRIGGER);
-          buffer.put_u16(9);
+          /* LLRP Standard - Release 2.0, 11.2.2.1
 
-          // Fields
-          buffer.put_u8(0);  // (Null - Stop when ROSpec is done)
-          buffer.put_u32(0); // Padding/Optional fields (Probably required when AIStopTrigger type is not 0)
+            AISpecStopTriggerParameter
+
+            ----------
+            AISpecStopTriggerType: Integer
+
+            Possible Values:
+            0 Null – Stop when ROSpec is done.
+
+            1 Duration
+
+            2 GPI with a timeout value
+
+            3 Tag observation
+            ----------
+            Duration Trigger: Unsigned Integer. Duration of AISpec in milliseconds. This field SHALL be ignored when AISpecStopTriggerType != 1.
+            ----------
+            GPI Trigger : GPITrigger value Parameter [Optional]. This field SHALL be present when AISpecStopTriggerType = 2.
+            ----------
+            TagObservation Trigger : TagObservation Trigger Parameter [Optional]. This field SHALL be present when AISpecStopTriggerType = 3.
+          */
+          buffer.put_u16(PARAM_AI_SPEC_STOP_TRIGGER);
+          buffer.put_u16(0x0009);
+
+          /* Fields */
+
+          // AISpecStopTriggerType
+          buffer.put_u8(0x0); // 0 - Stop when ROSpec is done
+
+          buffer.put_u32(0x00000000); // Null-field padding (Fields not required with AISpecStopTriggerType=0)
         }
 
+        /* LLRP Standard - Release 2.0, 14.2.1
+
+          ROReportSpecParameter
+
+          ----------
+          ROReportTrigger: Integer
+
+          Possible Values:
+
+          0 None
+
+          1 (Upon N TagReportData Parameters or End of AISpec) Or (End of RFSurveySpec) - N=0 is unlimited
+
+          2 Upon N TagReportData Parameters or End of ROSpec - N=0 is unlimited
+
+          3 Upon N seconds or (End of AISpec or End of RFSurveySpec) – N=0 is unlimited
+
+          4 Upon N seconds or End of ROSpec – N=0 is unlimited.
+
+          5 Upon N milliseconds or (End of AISpec or End of RFSurveySpec) – N=0 is unlimited
+
+          6 Upon N milliseconds or End of ROSpec – N=0 is unlimited
+          
+          7 Upon N inventory rounds or End of ROSpec - N=0 is unlimited. (If N=1, the TagSeenCount parameter in
+          TagReportData can be used as well
+          ----------
+          N: Unsigned Short Integer. When ROReportTrigger = 1 or 2, this is the number of TagReportData parameters 
+          present in a report before the report trigger fires. When ROReportTrigger = 3 or 4, this is the number 
+          of seconds since the last report was generated before the report trigger fires. When ROReportTrigger = 5 or 6, this is the number of
+          milliseconds since the last report was generated before the report trigger fires. If N = 0, there is no limit on either the number of 
+          TagReportData parameters, or the time since the last report was generated. This field SHALL be ignored when ROReportTrigger = 0.
+          ----------
+          ReportContents: <TagReportContentSelector Parameter>
+          ----------
+          Custom Extension Point List: List of <Custom Parameter> [Optional]
+        */
         PARAM_RO_REPORT_SPEC => {
-          buffer.put_u8(0);  // ReportTrigger (End of ROSpec)
-          buffer.put_u16(0); // N (Required according to spec, correlates to ReportTrigger parameter)
+          // ROReportTriggerType
+          buffer.put_u8(0x00); // 0 - None
+          buffer.put_u16(0x0000); // N null-field padding (Fields not required with ROReportTriggerType=0)
 
+          /* LLRP Standard - Release 2.0, 14.2.1.1
+
+            TagReportContentSelector
+
+            Note: All booleans are encoded as single bits within an unsigned 16-bit word
+
+            ----------
+            EnableROSpecID: Boolean EnableSpecIndex:
+            ----------
+            Boolean EnableInventoryParameterSpecID:
+            ----------
+            Boolean EnableAntennaID: Boolean
+            ----------
+            EnableChannelIndex: Boolean
+            ----------
+            EnablePeakRSSI: Boolean
+            ----------
+            EnableFirstSeenTimestamp: Boolean
+            ----------
+            EnableLastSeenTimestamp: Boolean
+            ----------
+            EnableTagSeenCount: Boolean
+            ----------
+            EnableCryptoResponse: Boolean
+
+          */
           buffer.put_u16(PARAM_TAG_REPORT_CONTENT_SELECTOR);
-          buffer.put_u16(6);
+          buffer.put_u16(0x0006);
 
-          // Fields
-          buffer.put_u16(0); // ReportContentSelector (TagInfo/EPC (Individual bits correspond to enabling/disabling specific parameters))
+          /* Fields */
+
+          // ReportContentSelector boolean bit values
+          buffer.put_u16(0x0000); // ReportContentSelector (TagInfo/EPC)
         }
         _ => {}
       }
 
+      // Recursively encode nested parameters.
       for sub_param in &param.payload {
         encode_parameter(sub_param, buffer, rospec_id); // Recursive call
       }
@@ -237,11 +433,14 @@ impl LlrpMessage {
     LlrpMessage::new(TYPE_CLOSE_CONNECTION , message_id, vec![])
   }
 
+  /// Encodes the LLRP message into a binary format.
+  ///
+  /// This includes the LLRP header and the message payload.
   pub fn encode(&self) -> BytesMut {
     let mut buffer = BytesMut::with_capacity(self.message_length as usize);
 
-    let version = 1;
-    let reserved = 0;
+    let version = 0x0001;
+    let reserved = 0x0000;
     let version_and_type = ((version & 0x7) << 13) | ((reserved & 0x7) << 10) | (self.message_type & 0x3FFF);
 
     buffer.put_u16(version_and_type as u16);
@@ -252,6 +451,9 @@ impl LlrpMessage {
     buffer
   }
 
+  /// Decodes an LLRP message from a binary buffer.
+  ///
+  /// Returns an `io::Result` with the decoded message or an error.
   pub fn decode(buf: &mut BytesMut) -> io::Result<Self> {
     if buf.len() < 10 {
       return Err(Error::new(ErrorKind::InvalidData, "Buffer too short for LLRP header"));
