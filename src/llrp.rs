@@ -188,8 +188,14 @@ impl LlrpMessage {
         }
 
         PARAM_RO_REPORT_SPEC => {
-          buffer.put_u8(1); // ReportTrigger (End of ROSpec)
-          buffer.put_u8(1); // ReportContentSelector (TagInfo/EPC)
+          buffer.put_u8(0);  // ReportTrigger (End of ROSpec)
+          buffer.put_u16(0); // N (Required according to spec, correlates to ReportTrigger parameter)
+
+          buffer.put_u16(PARAM_TAG_REPORT_CONTENT_SELECTOR);
+          buffer.put_u16(6);
+
+          // Fields
+          buffer.put_u16(0); // ReportContentSelector (TagInfo/EPC (Individual bits correspond to enabling/disabling specific parameters))
         }
         _ => {}
       }

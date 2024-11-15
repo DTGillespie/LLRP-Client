@@ -17,7 +17,6 @@ async fn main() {
       let all_ro_specs = 0;
       let rospec_id = 1;
 
-      /*
       if let Err(e) = client.send_delete_rospec(all_ro_specs).await {
         eprintln!("Failed to send DELETE_RO_SPEC: {}", e);
       }
@@ -25,12 +24,11 @@ async fn main() {
       if let Err(e) = client.send_enable_events_and_reports().await {
         eprintln!("Failed to send ENABLE_EVENTS_AND_REPORTS: {}", e);
       }
-      */
+
       if let Err(e) = client.send_add_rospec(rospec_id).await {
         eprintln!("Failed to send ROSpec: {}", e);
       }
 
-      /*
       if let Err(e) = client.send_start_rospec(rospec_id).await {
         eprintln!("Failed to send StartROSpec: {}", e)
       }
@@ -61,7 +59,6 @@ async fn main() {
       if let Err(e) = client.disconnect().await {
         eprintln!("Failed to send CLOSE_CONNECTION: {}", e);
       }
-      */
     }
 
     Err(e) => {
