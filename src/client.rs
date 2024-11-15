@@ -4,11 +4,10 @@ use tokio::net::TcpStream;
 use std::error::Error;
 use bytes::Buf;
 
-use crate::llrp::LlrpMessage;
+use crate::llrp::{LlrpMessage, LlrpResponse};
 use crate::llrp::{
   TYPE_KEEPALIVE, 
   TYPE_CLOSE_CONNECTION,
-  TYPE_ADD_ROSPEC_RESPONSE,
 };
 
 pub struct LlrpClient {
@@ -45,8 +44,6 @@ impl LlrpClient {
 
     println!("Sent CLOSE_CONNECTION");
 
-    //self.receive_response().await?;
-
     Ok(())
   }
 
@@ -58,8 +55,6 @@ impl LlrpClient {
     
     println!("Sent KEEP_ALIVE");
 
-    //self.receive_response().await?;
-    
     Ok(())
   }
 
@@ -71,8 +66,6 @@ impl LlrpClient {
     
     println!("Sent ENABLE_EVENTS_AND_REPORTS");
     
-    //self.receive_response().await?;
-
     Ok(())
   }
 
@@ -84,12 +77,21 @@ impl LlrpClient {
     
     println!("Sent ADD_ROSPEC with ID: {}", rospec_id);
 
-    //self.receive_response().await?;
+    Ok(())
+  }
+
+  pub async fn send_enable_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+    let message_id = self.next_message_id();
+
+    let message = LlrpMessage::new_enable_rospec(message_id, rospec_id);
+    self.stream.write_all(&message.encode()).await?;
+
+    println!("Sent ENABLE_RO_SPEC for ROSpec ID: {}", rospec_id);
 
     Ok(())
   }
 
-  pub async fn send_start_rospec(&mut self, rospec_id: u32) -> Result<(), Box<dyn Error>> {
+  pub async fn send_start_rospec(&mut self, rospec_id: u32, receive_response: Option<bool>, response_callback: Option<Box<dyn Fn(LlrpResponse)>>) -> Result<(), Box<dyn Error>> {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_start_rospec(message_id, rospec_id);
@@ -97,7 +99,11 @@ impl LlrpClient {
 
     println!("Sent START_RO_SPEC for ROSpec ID: {}", rospec_id);
 
-    //self.receive_response().await?;
+    let _receive_response = receive_response.unwrap_or(false);
+    if _receive_response {
+      let res = self.receive_response().await?;
+      if let Some(cb) = response_callback { cb(res) }
+    }
 
     Ok(())
   }
@@ -109,8 +115,6 @@ impl LlrpClient {
     self.stream.write_all(&message.encode()).await?;
 
     println!("Sent STOP_RO_SPEC for ROSpec ID: {}", rospec_id);
-
-    //self.receive_response().await?;
 
     Ok(())
   }
@@ -137,7 +141,7 @@ impl LlrpClient {
   }
   */
 
-  pub async fn receive_response(&mut self) -> Result<LlrpMessage, Box<dyn Error>> {
+  pub async fn receive_response(&mut self) -> Result<LlrpResponse, Box<dyn Error>> {
     let mut buf = BytesMut::with_capacity(1024);
 
     // Read header (10 bytes)
@@ -150,6 +154,8 @@ impl LlrpClient {
         )));
       }
     }
+
+    println!("Debug response buffer: {:?}", buf);
 
     // Read buffer length without consuming bytes
     let message_length = {
@@ -171,7 +177,8 @@ impl LlrpClient {
     }
 
     let llrp_message = LlrpMessage::decode(&mut buf)?;
-    println!("Received message of type: {}", llrp_message.message_type);
+    let llrp_response = LlrpResponse::from_message(llrp_message);
+    println!("Received message of type: {}", llrp_response.message_type);
 
     /*
     if llrp_message.message_type == TYPE_RO_ACCESS_REPORT {
@@ -190,6 +197,6 @@ impl LlrpClient {
     }
     */
 
-    Ok(llrp_message)
+    Ok(llrp_response)
   }
 }

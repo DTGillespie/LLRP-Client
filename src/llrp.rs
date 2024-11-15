@@ -355,7 +355,7 @@ impl LlrpMessage {
         */
         PARAM_RO_REPORT_SPEC => {
           // ROReportTriggerType
-          buffer.put_u8(0x00); // 0 - None
+          buffer.put_u8(0x01); // 0 - None
           buffer.put_u16(0x0000); // N null-field padding (Fields not required with ROReportTriggerType=0)
 
           /* LLRP Standard - Release 2.0, 14.2.1.1
@@ -411,6 +411,12 @@ impl LlrpMessage {
     LlrpMessage::new(TYPE_ADD_ROSPEC, message_id, payload.to_vec())
   }
 
+  pub fn new_enable_rospec(message_id: u32, rospec_id: u32) -> Self {
+    let mut payload = BytesMut::with_capacity(4);
+    payload.put_u32(rospec_id);
+    LlrpMessage::new(TYPE_ENABLE_ROSPEC, message_id, payload.to_vec())
+  }
+
   pub fn new_start_rospec(message_id: u32, rospec_id: u32) -> Self {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
@@ -439,9 +445,11 @@ impl LlrpMessage {
   pub fn encode(&self) -> BytesMut {
     let mut buffer = BytesMut::with_capacity(self.message_length as usize);
 
+    //let version = 0x0001;
+    let padding = 0x0000;
     let version = 0x0001;
-    let reserved = 0x0000;
-    let version_and_type = ((version & 0x7) << 13) | ((reserved & 0x7) << 10) | (self.message_type & 0x3FFF);
+
+    let version_and_type = ((padding & 0x7) << 13) | ((version & 0x7) << 10) | (self.message_type & 0x3FFF);
 
     buffer.put_u16(version_and_type as u16);
     buffer.put_u32(self.message_length);
@@ -492,6 +500,51 @@ fn calculate_total_length(param: &Parameter) -> u16 {
   total_length
 }
 
+#[derive(Debug)]
+pub struct LlrpResponse {
+  pub message_type: u16,
+  pub message_id: u32,
+  pub payload: Vec<u8>
+}
+
+// Base implementation from ChatGPT 
+impl LlrpResponse {
+  
+  /// Constructs a new LlrpResponse from a decoded LlrpMessage
+  pub fn from_message(message: LlrpMessage) -> Self {
+    LlrpResponse {
+      message_type: message.message_type,
+      message_id: message.message_id,
+      payload: message.payload,
+    }
+  }
+
+  /// Decodes the payload for specific response types (e.g., TagReports)
+  pub fn decode(&self) -> io::Result<()> {
+    match self.message_type {
+
+      TYPE_RO_ACCESS_REPORT => {
+        let mut buf = BytesMut::from(&self.payload[..]);
+
+        while buf.remaining() > 0 {
+          let tag_report = TagReport::decode(&mut buf)?;
+          println!("Decoded TagReport: {:?}", tag_report);
+        }
+      }
+
+      TYPE_ERROR_MESSAGE => {
+        println!("Error Message Payload: {:?}", self.payload);
+      }
+      _ => {
+        println!("Unhandled message type: {}", self.message_type);
+      }
+    }
+
+    Ok(())
+  }
+}
+
+#[derive(Debug)]
 pub struct TagReport {
   pub epc: Vec<u8>, // EPC (Electronic Product Code) data
   pub timestamp: u64,
