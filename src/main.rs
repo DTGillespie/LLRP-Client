@@ -16,7 +16,7 @@ async fn main() {
 
       let rospec_id = 1;
 
-      if let Err(e) = client.send_delete_rospec(0x00).await {
+      if let Err(e) = client.send_delete_rospec(0x00, Some(true)).await {
         eprintln!("Error during DELETE_RO_SPEC operation: {}", e);
       }
       
