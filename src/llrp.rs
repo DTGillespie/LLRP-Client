@@ -176,15 +176,15 @@ impl LlrpMessage {
       
       let initial_length_pos = buffer.len();
       buffer.put_u16(param.param_type);
-      buffer.put_u16(0x0000); // Placeholder for length, updated later.
+      buffer.put_u16(0); // Placeholder for length, updated later.
 
       // Encode specific fields based on the parameter type.
       match param.param_type {
 
         PARAM_RO_SPEC => {
           buffer.put_u32(rospec_id);
-          buffer.put_u8(0x00); // Priority
-          buffer.put_u8(0x00); // CurrentState
+          buffer.put_u8(0); // Priority
+          buffer.put_u8(0); // CurrentState
         }
 
         /* LLRP Standard - Release 2.0, 11.2.1.1
@@ -220,12 +220,12 @@ impl LlrpMessage {
             GPITriggerValue: GPITriggerValue Parameter [Optional]. This parameter SHALL be present when ROSpecStartTriggerType = 3.
           */
           buffer.put_u16(PARAM_RO_SPEC_START_TRIGGER);
-          buffer.put_u16(0x0005); // Length
+          buffer.put_u16(5); // Length
 
           /* Fields */
           
           //ROSpecStartTriggerType
-          buffer.put_u8(0x01); // 1 - Immediate
+          buffer.put_u8(1); // 1 - Immediate
 
           /* LLRP Standard - Release 2.0, 11.2.1.1.4
 
@@ -252,14 +252,14 @@ impl LlrpMessage {
             GPITriggerValue: GPITriggerValue Parameter [Optional]. This parameter SHALL be present when ROSpecStopTriggerType = 2.
           */
           buffer.put_u16(PARAM_RO_SPEC_STOP_TRIGGER);
-          buffer.put_u16(0x0009); // Length
+          buffer.put_u16(9); // Length
           
           /* Fields */
 
           // ROSpecStopTriggerType
-          buffer.put_u8(0x00); // 0 - No stop trigger
+          buffer.put_u8(0); // 0 - No stop trigger
 
-          buffer.put_u32(0x00000000); // Null-field padding (Fields not required with ROSpecStoTriggerType=0)
+          buffer.put_u32(0); // Null-field padding (Fields not required with ROSpecStoTriggerType=0)
         }
 
         /* LLRP Standard - Release 2.0, 11.2.2
@@ -277,7 +277,7 @@ impl LlrpMessage {
         */
         PARAM_AI_SPEC => {
 
-          let antenna_ids = vec![0x0000]; // 0 - Use all antennas
+          let antenna_ids = vec![0]; // 0 - Use all antennas
 
           // AntennaID Array (Allocated before AISpecStopTrigger)
           for antenna_id in antenna_ids {
@@ -307,14 +307,14 @@ impl LlrpMessage {
             TagObservation Trigger : TagObservation Trigger Parameter [Optional]. This field SHALL be present when AISpecStopTriggerType = 3.
           */
           buffer.put_u16(PARAM_AI_SPEC_STOP_TRIGGER);
-          buffer.put_u16(0x0009);
+          buffer.put_u16(9);
 
           /* Fields */
 
           // AISpecStopTriggerType
-          buffer.put_u8(0x0); // 0 - Stop when ROSpec is done
+          buffer.put_u8(0); // 0 - Stop when ROSpec is done
 
-          buffer.put_u32(0x00000000); // Null-field padding (Fields not required with AISpecStopTriggerType=0)
+          buffer.put_u32(0); // Null-field padding (Fields not required with AISpecStopTriggerType=0)
         }
 
         /* LLRP Standard - Release 2.0, 14.2.1
@@ -355,8 +355,8 @@ impl LlrpMessage {
         */
         PARAM_RO_REPORT_SPEC => {
           // ROReportTriggerType
-          buffer.put_u8(0x01); // 0 - None
-          buffer.put_u16(0x0000); // N null-field padding (Fields not required with ROReportTriggerType=0)
+          buffer.put_u8(0);  // 0 - None
+          buffer.put_u16(0); // N null-field padding (Fields not required with ROReportTriggerType=0)
 
           /* LLRP Standard - Release 2.0, 14.2.1.1
 
@@ -385,12 +385,12 @@ impl LlrpMessage {
 
           */
           buffer.put_u16(PARAM_TAG_REPORT_CONTENT_SELECTOR);
-          buffer.put_u16(0x0006);
+          buffer.put_u16(6);
 
           /* Fields */
 
-          // ReportContentSelector boolean bit values
-          buffer.put_u16(0x0000); // ReportContentSelector (TagInfo/EPC)
+          // ReportContentSelector boolean bitmask
+          buffer.put_u16(0); // ReportContentSelector (TagInfo/EPC)
         }
         _ => {}
       }
@@ -446,8 +446,8 @@ impl LlrpMessage {
     let mut buffer = BytesMut::with_capacity(self.message_length as usize);
 
     //let version = 0x0001;
-    let padding = 0x0000;
-    let version = 0x0001;
+    let padding = 0;
+    let version = 1;
 
     let version_and_type = ((padding & 0x7) << 13) | ((version & 0x7) << 10) | (self.message_type & 0x3FFF);
 
