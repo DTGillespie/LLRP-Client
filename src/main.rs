@@ -10,30 +10,31 @@ use tokio::{self};
 async fn main() {
   let addr = "192.168.1.102:5084";
 
-  match LlrpClient::connect(addr).await {
+  match LlrpClient::connect(addr, 2500).await {
     Ok(mut client) => {
       println!("Connected to LLRP reader: {}", addr);
 
       let rospec_id = 1;
 
       if let Err(e) = client.send_delete_rospec(0x00).await {
-        eprintln!("Failed to send DELETE_RO_SPEC: {}", e);
+        eprintln!("Error during DELETE_RO_SPEC operation: {}", e);
       }
       
+      /*
       if let Err(e) = client.send_enable_events_and_reports().await {
-        eprintln!("Failed to send ENABLE_EVENTS_AND_REPORTS: {}", e);
+        eprintln!("Error during ENABLE_EVENTS_AND_REPORTS operation: {}", e);
       }
 
       if let Err(e) = client.send_add_rospec(rospec_id).await {
-        eprintln!("Failed to send ROSpec: {}", e);
+        eprintln!("Error during ADD_RO_SPEC operation: {}", e);
       }
 
       if let Err(e) = client.send_enable_rospec(rospec_id).await {
-        eprintln!("Failed to send ENABLE_RO_SPEC: {}", e);
+        eprintln!("Error during ENABLE_RO_SPEC operation: {}", e);
       }
 
       if let Err(e) = client.send_start_rospec(rospec_id, None, None).await {
-        eprintln!("Failed to send StartROSpec: {}", e)
+        eprintln!("Error during START_RO_SPEC operation: {}", e)
       }
 
       /*
@@ -44,7 +45,7 @@ async fn main() {
           println!("Debug res_cb, received response: {:?}", res);
         }))
       ).await {
-        eprintln!("Failed to send StartROSpec: {}", e)
+        eprintln!("Error during START_RO_SPEC operation: {}", e)
       }
       */
 
@@ -56,7 +57,7 @@ async fn main() {
         /*
         if last_keep_alive.elapsed().as_millis() >= 100 {
           if let Err(e) = client.send_keep_alive().await {
-            eprintln!("Failed to send KEEP_ALIVE: {}", e);
+            eprintln!("Error during KEEP_ALIVE operation: {}", e);
           }
           last_keep_alive = Instant::now();
         }
@@ -66,12 +67,13 @@ async fn main() {
       }
 
       if let Err(e) = client.send_stop_rospec(rospec_id).await {
-        eprintln!("Failed to send StopROSpec: {}", e)
+        eprintln!("Error during STOP_RO_SPEC operation: {}", e)
       }
       
       if let Err(e) = client.disconnect().await {
-        eprintln!("Failed to send CLOSE_CONNECTION: {}", e);
+        eprintln!("Error during CLOSE_CONNECTION operation: {}", e);
       }
+      */
     }
 
     Err(e) => {
