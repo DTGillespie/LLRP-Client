@@ -11,7 +11,7 @@ async fn main() {
 
   let addr = "192.168.1.102:5084";
 
-  match LlrpClient::connect(addr, 2500, 5).await {
+  match LlrpClient::connect(addr, 2500).await {
     Ok(mut client) => {
       println!("Connected to LLRP reader: {}", addr);
 
@@ -41,8 +41,8 @@ async fn main() {
         eprintln!("Error during StartROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.await_ro_access_report(|res| async move {
-        println!("Received ROAccessReport: {:?}", res);
+      if let Err(e) = client.await_ro_access_report(5, |response| async move {
+        println!("Received ROAccessReport: {:?}", response);
       }).await {
         println!("Error attempting to receive ROAccessReport: {}", e)
       }

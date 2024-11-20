@@ -13,21 +13,19 @@ pub struct LlrpClient {
   stream             : TcpStream,
   message_id         : u32,
   res_timeout        : u64,
-  report_res_timeout : u32
 }
 
 impl LlrpClient {
 
   pub async fn connect(
-    addr               : &str, 
-    response_timeout   : u64,
-    report_res_timeout : u32
+    addr        : &str, 
+    res_timeout : u64,
   ) -> io::Result<Self> {
 
     let stream = TcpStream::connect(addr).await?;
     println!("Client connected: {}", addr);
     
-    Ok(LlrpClient { stream, message_id: 1001 , res_timeout: response_timeout, report_res_timeout })
+    Ok(LlrpClient { stream, message_id: 1001 , res_timeout })
   }
 
   pub async fn disconnect(
@@ -190,13 +188,6 @@ impl LlrpClient {
       self.log_response_acknowledgment(LlrpMessageType::StartROspecResponse, response.message_type);
     }
 
-    /*
-    if receive_response.is_some_and(|x| x == true) {
-      let response = self.receive_response().await?;
-      if let Some(cb) = response_callback { cb(response) }
-    }
-    */
-
     Ok(())
   }
 
@@ -256,21 +247,22 @@ impl LlrpClient {
   }
 
   pub async fn await_ro_access_report<Fut, F>(
-    &mut self, 
-    mut response_callback: F
+    &mut self,
+    timeout               : u64,
+    mut response_callback : F
   ) -> Result<(), Box<dyn Error>> 
   where
     F: FnMut(LlrpResponse) -> Fut + Send + Sync, // Ensure callback is safe to transfer (Send) and share (Sync) across threads.
     Fut: Future<Output = ()> + Send 
   {
 
-    let timeout = Duration::from_secs(5);
+    let _timeout = Duration::from_secs(timeout);
     let start_time = Instant::now();
 
     loop {
 
       let elapsed = start_time.elapsed();
-      if elapsed >= timeout {
+      if elapsed >= _timeout {
         return Err(Box::new(std::io::Error::new(
           std::io::ErrorKind::TimedOut,
           "Timeout waiting for ROAccessReport",
