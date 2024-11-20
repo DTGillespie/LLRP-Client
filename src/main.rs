@@ -8,76 +8,56 @@ use tokio::{self};
 
 #[tokio::main]
 async fn main() {
+
   let addr = "192.168.1.102:5084";
 
-  match LlrpClient::connect(addr, 2500).await {
+  match LlrpClient::connect(addr, 2500, 5).await {
     Ok(mut client) => {
       println!("Connected to LLRP reader: {}", addr);
 
       let rospec_id = 1;
 
       if let Err(e) = client.send_delete_rospec(0x00, Some(true)).await {
-        eprintln!("Error during DELETE_RO_SPEC operation: {}", e);
+        eprintln!("Error during DeleteROSpec operation: {}", e);
       }
       
-      /*
-      if let Err(e) = client.send_enable_events_and_reports().await {
-        eprintln!("Error during ENABLE_EVENTS_AND_REPORTS operation: {}", e);
+      if let Err(e) = client.send_set_reader_config(Some(true)).await {
+        eprintln!("Error during SendReaderConfig operation: {}", e);
       }
 
-      if let Err(e) = client.send_add_rospec(rospec_id).await {
-        eprintln!("Error during ADD_RO_SPEC operation: {}", e);
+      if let Err(e) = client.send_enable_events_and_reports(Some(true)).await {
+        eprintln!("Error during EnableEventsAndReports operation: {}", e);
       }
 
-      if let Err(e) = client.send_enable_rospec(rospec_id).await {
-        eprintln!("Error during ENABLE_RO_SPEC operation: {}", e);
+      if let Err(e) = client.send_add_rospec(rospec_id, Some(true)).await {
+        eprintln!("Error during AddROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_start_rospec(rospec_id, None, None).await {
-        eprintln!("Error during START_RO_SPEC operation: {}", e)
+      if let Err(e) = client.send_enable_rospec(rospec_id, Some(true)).await {
+        eprintln!("Error during EnableROSpec operation: {}", e);
       }
 
-      /*
-      if let Err(e) = client.send_start_rospec(
-        rospec_id,
-        Some(true),
-        Some(Box::new(|res| {
-          println!("Debug res_cb, received response: {:?}", res);
-        }))
-      ).await {
-        eprintln!("Error during START_RO_SPEC operation: {}", e)
-      }
-      */
-
-      let mut last_keep_alive = Instant::now();
-      let loop_start = Instant::now();
-      loop {
-        if loop_start.elapsed().as_millis() >= 1000 { break }
-
-        /*
-        if last_keep_alive.elapsed().as_millis() >= 100 {
-          if let Err(e) = client.send_keep_alive().await {
-            eprintln!("Error during KEEP_ALIVE operation: {}", e);
-          }
-          last_keep_alive = Instant::now();
-        }
-        */
-
-        tokio::time::sleep(Duration::from_millis(25)).await;
+      if let Err(e) = client.send_start_rospec(rospec_id, Some(true)).await {
+        eprintln!("Error during StartROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_stop_rospec(rospec_id).await {
-        eprintln!("Error during STOP_RO_SPEC operation: {}", e)
+      if let Err(e) = client.await_ro_access_report(|res| async move {
+        println!("Received ROAccessReport: {:?}", res);
+      }).await {
+        println!("Error attempting to receive ROAccessReport: {}", e)
+      }
+
+      if let Err(e) = client.send_stop_rospec(rospec_id, Some(true)).await {
+        eprintln!("Error during StopROSpec operation: {}", e);
       }
       
-      if let Err(e) = client.disconnect().await {
-        eprintln!("Error during CLOSE_CONNECTION operation: {}", e);
+      if let Err(e) = client.disconnect(None).await {
+        eprintln!("Error during CloseConnection operation: {}", e);
       }
-      */
     }
 
     Err(e) => {
-      eprintln!("Failed to connect to LLRP reader: {}", e)
+      eprintln!("Failed to connect to LLRP server: {}", e)
     }
   }
 }

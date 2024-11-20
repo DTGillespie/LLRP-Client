@@ -40,22 +40,29 @@ pub enum LlrpMessageType {
 
 impl LlrpMessageType {
   
-  pub fn value(&self) -> u16 {
+  pub fn value(
+    &self
+  ) -> u16 {
     *self as u16
   }
 
-  pub fn from_value(value: u16) -> Option<Self>{
+  pub fn from_value(
+    value: u16
+  ) -> Option<Self> {
     Self::iter().find(|&variant| variant as u16 == value)
   }
 }
 
-static LLRP_MESSAGE_TYPE_LUT: Lazy<HashMap<u16, String>> = Lazy::new(|| {
+static LLRP_MESSAGE_TYPE_LUT: 
+Lazy<HashMap<u16, String>> = Lazy::new(|| {
   LlrpMessageType::iter()
     .map(|variant| (variant as u16, format!("{:?}", variant)))
     .collect()
 });
 
-pub fn get_message_type_str(message_type: u16) -> &'static str {
+pub fn get_message_type_str(
+  message_type: u16
+) -> &'static str {
   LLRP_MESSAGE_TYPE_LUT
     .get(&message_type)
     .map(|s| s.as_str())
@@ -114,22 +121,29 @@ pub enum LlrpParameterType {
 
 impl LlrpParameterType {
 
-  pub fn value(&self) -> u16 {
+  pub fn value(
+    &self
+  ) -> u16 {
     *self as u16
   }
 
-  pub fn from_value(value: u16) -> Option<Self> {
+  pub fn from_value(
+    value: u16
+  ) -> Option<Self> {
     Self::iter().find(|&variant| variant as u16 == value)
   } 
 }
 
-static LLRP_PARAMETER_TYPE_LUT: Lazy<HashMap<u16, String>> = Lazy::new(|| {
+static LLRP_PARAMETER_TYPE_LUT: 
+Lazy<HashMap<u16, String>> = Lazy::new(|| {
   LlrpParameterType::iter()
     .map(|variant| (variant as u16, format!("{:?}", variant)))
     .collect()
 });
 
-pub fn get_parameter_type_str(message_type: u16) -> &'static str {
+pub fn get_parameter_type_str(
+  message_type: u16
+) -> &'static str {
   LLRP_MESSAGE_TYPE_LUT.get(&message_type)
   .map(|s| s.as_str())
   .unwrap_or(&"Unknown parameter type")
@@ -147,7 +161,6 @@ pub fn get_parameter_type_str(message_type: u16) -> &'static str {
 /// - `payload`: The binary payload of the message.
 #[derive(Debug)]
 pub struct LlrpMessage {
-
   pub message_type   : LlrpMessageType,
   pub message_length : u32,
   pub message_id     : u32,
@@ -164,8 +177,8 @@ pub struct LlrpMessage {
 /// - `payload`: A vector of nested `Parameter` instances.
 #[derive(Debug)]
 struct Parameter {
-  param_type: LlrpParameterType, 
-  payload: Vec<Parameter>,
+  param_type : LlrpParameterType, 
+  payload    : Vec<Parameter>,
 }
 
 impl LlrpMessage {
@@ -173,7 +186,11 @@ impl LlrpMessage {
   /// Constructs a new LLRP message with the specified type, ID, and payload.
   ///
   /// Automatically calculates the message length based on the payload size.
-  pub fn new(message_type: LlrpMessageType, message_id: u32, payload: Vec<u8>) -> Self {
+  pub fn new(
+    message_type : LlrpMessageType, 
+    message_id   : u32, 
+    payload      : Vec<u8>
+  ) -> Self {
     let message_length = 10 + payload.len() as u32;
     LlrpMessage {
       message_type,
@@ -186,8 +203,23 @@ impl LlrpMessage {
   /// Constructs a new `EnableEventsAndReports` message.
   ///
   /// This message enables event and report generation on the reader.
-  pub fn new_enable_events_and_reports(message_id: u32) -> Self {
+  pub fn new_enable_events_and_reports(
+    message_id: u32
+  ) -> Self {
     LlrpMessage::new(LlrpMessageType::EnableEventsAndReports, message_id, vec![])
+  }
+  
+  /// Constructs a new `SetReaderConfig` message
+  /// 
+  /// This message resets reader configuration to factory settings.
+  pub fn new_set_reader_config(
+    message_id: u32
+  ) -> Self {
+
+    let mut payload = BytesMut::with_capacity(1);
+    payload.put_u8(255); // Restore factory settings
+
+    LlrpMessage::new(LlrpMessageType::SetReaderConfig, message_id, payload.to_vec())
   }
 
   /// Constructs a new `AddROSpec` message with the specified ROSpec ID.
@@ -196,7 +228,10 @@ impl LlrpMessage {
   /// - `ROBoundarySpec`: Specifies start and stop triggers.
   /// - `AISpec`: Defines antenna configurations and stop triggers.
   /// - `ROReportSpec`: Configures report generation.
-  pub fn new_add_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_add_rospec(
+    message_id : u32, 
+    rospec_id  : u32
+  ) -> Self {
     
     let ro_boundary_spec = Parameter {
       param_type: LlrpParameterType::ROBoundarySpec,
@@ -220,7 +255,11 @@ impl LlrpMessage {
 
     let mut payload = BytesMut::new();
 
-    fn encode_parameter(param: &Parameter, buffer: &mut BytesMut, rospec_id: u32) {
+    fn encode_parameter(
+      param     : &Parameter, 
+      buffer    : &mut BytesMut, 
+      rospec_id : u32
+    ) {
       
       let initial_length_pos = buffer.len();
       buffer.put_u16(param.param_type.value());
@@ -230,7 +269,7 @@ impl LlrpMessage {
  
         LlrpParameterType::ROSpec => {
           buffer.put_u32(rospec_id);
-          buffer.put_u8(0); // Priority
+          buffer.put_u8(1); // Priority
           buffer.put_u8(0); // CurrentState
         }
 
@@ -241,7 +280,7 @@ impl LlrpMessage {
           buffer.put_u16(5); // Length (static)
 
           /* Fields */
-          buffer.put_u8(1); // ROSpecStartTriggerType (1 - Immediate)
+          buffer.put_u8(0); // ROSpecStartTriggerType
 
           // ROSpecStopTrigger
           buffer.put_u16(LlrpParameterType::ROSpecStopTrigger.value());
@@ -282,16 +321,16 @@ impl LlrpMessage {
 
         LlrpParameterType::ROReportSpec => {
 
-          // ROReportTriggerType
-          buffer.put_u8(0);  // 0 - None
-          buffer.put_u16(0); // N null-field padding (Fields not required with ROReportTriggerType=0)
+          buffer.put_u8(1);  // ROReportTriggerType
+          buffer.put_u16(1); // N
 
           // TagReportContentSelector
           buffer.put_u16(LlrpParameterType::TagReportContentSelector.value());
           buffer.put_u16(6); // Length (static)
 
           /* Fields */
-          buffer.put_u16(768); // ReportContentSelector (TagInfo/EPC)
+          //buffer.put_u16(768); // ReportContentSelector (TagInfo/EPC)
+          buffer.put_u16(0); // ReportContentSelector (TagInfo/EPC)
         }
         _ => {}
       }
@@ -312,27 +351,47 @@ impl LlrpMessage {
     LlrpMessage::new(LlrpMessageType::AddROspec, message_id, payload.to_vec())
   }
 
-  pub fn new_enable_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_enable_rospec(
+    message_id : u32, 
+    rospec_id  : u32
+  ) -> Self {
+
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
+    
     LlrpMessage::new(LlrpMessageType::EnableROspec, message_id, payload.to_vec())
   }
 
-  pub fn new_start_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_start_rospec(
+    message_id : u32, 
+    rospec_id  : u32
+  ) -> Self {
+
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
+    
     LlrpMessage::new(LlrpMessageType::StartROspec, message_id, payload.to_vec())
   }
 
-  pub fn new_stop_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_stop_rospec(
+    message_id : u32, 
+    rospec_id  : u32
+  ) -> Self {
+    
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
+    
     LlrpMessage::new(LlrpMessageType::StopROspec, message_id,   payload.to_vec())
   }
 
-  pub fn new_delete_rospec(message_id: u32, rospec_id: u32) -> Self {
+  pub fn new_delete_rospec(
+    message_id : u32, 
+    rospec_id  : u32
+  ) -> Self {
+    
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
+    
     LlrpMessage::new(LlrpMessageType::DeleteROspec, message_id, payload.to_vec())
   }
 
@@ -343,7 +402,10 @@ impl LlrpMessage {
   /// Encodes the LLRP message into a binary format.
   ///
   /// This includes the LLRP header and the message payload.
-  pub fn encode(&self) -> BytesMut {
+  pub fn encode(
+    &self
+  ) -> BytesMut {
+
     let mut buffer = BytesMut::with_capacity(self.message_length as usize);
 
     let padding = 0;
@@ -362,7 +424,10 @@ impl LlrpMessage {
   /// Decodes an LLRP message from a binary buffer.
   ///
   /// Returns an `io::Result` with the decoded message or an error.
-  pub fn decode(buf: &mut BytesMut) -> io::Result<Self> {
+  pub fn decode(
+    buf: &mut BytesMut
+  ) -> io::Result<Self> {
+
     if buf.len() < 10 {
       return Err(Error::new(ErrorKind::InvalidData, "Buffer too short for LLRP header"));
     }
@@ -391,11 +456,13 @@ impl LlrpMessage {
   }
 }
 
-fn calculate_total_length(param: &Parameter) -> u16 {
-  let mut total_length = 4;
+fn calculate_total_length(
+  param: &Parameter
+) -> u16 {
 
+  let mut total_length = 4;
   for sub_param in &param.payload {
-      total_length += calculate_total_length(sub_param);
+    total_length += calculate_total_length(sub_param);
   }
 
   total_length += param.payload.len() as u16;
@@ -405,16 +472,18 @@ fn calculate_total_length(param: &Parameter) -> u16 {
 
 #[derive(Debug)]
 pub struct LlrpResponse {
-  pub message_type: LlrpMessageType,
-  pub message_id: u32,
-  pub payload: Vec<u8>
+  pub message_type : LlrpMessageType,
+  pub message_id   : u32,
+  pub payload      : Vec<u8>
 }
 
 // Base implementation from ChatGPT 
 impl LlrpResponse {
   
   /// Constructs a new LlrpResponse from a decoded LlrpMessage
-  pub fn from_message(message: LlrpMessage) -> Self {
+  pub fn from_message(
+    message: LlrpMessage
+  ) -> Self {
     LlrpResponse {
       message_type: message.message_type,
       message_id: message.message_id,
@@ -423,7 +492,9 @@ impl LlrpResponse {
   }
 
   /// Decodes the payload for specific response types (e.g., TagReports)
-  pub fn decode(&self) -> io::Result<()> {
+  pub fn decode(
+    &self
+  ) -> io::Result<()> {
     match self.message_type {
 
       LlrpMessageType::ROAccessReport => {
@@ -449,13 +520,16 @@ impl LlrpResponse {
 
 #[derive(Debug)]
 pub struct TagReport {
-  pub epc: Vec<u8>, // EPC (Electronic Product Code) data
-  pub timestamp: u64,
+  pub epc       : Vec<u8>, // EPC (Electronic Product Code) data
+  pub timestamp : u64,
 }
 
 impl TagReport {
 
-  pub fn decode(buf: &mut BytesMut) -> io::Result<Self> {
+  pub fn decode(
+    buf: &mut BytesMut
+  ) -> io::Result<Self> {
+    
     if buf.len() < 10 {
       return Err(Error::new(ErrorKind::InvalidData, "Buffer too short for Tag Report"));
     }
