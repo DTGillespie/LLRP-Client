@@ -42,7 +42,20 @@ async fn main() {
       }
 
       if let Err(e) = client.await_ro_access_report(5, |response| async move {
-        println!("Received ROAccessReport: {:?}", response);
+        
+        match response.decode() {
+          
+          Ok(tag_reports) => {
+            for tag_report in tag_reports {
+              println!("\nTagReportData: {}\n", tag_report);
+            }
+          }
+
+          Err(e) => {
+            eprintln!("Error decoding ROAccessReport: {}", e);
+          }
+        }
+
       }).await {
         println!("Error attempting to receive ROAccessReport: {}", e)
       }

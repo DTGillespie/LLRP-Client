@@ -1,5 +1,5 @@
 use bytes::{BytesMut, Buf, BufMut};
-use std::{collections::HashMap, io::{self, Error, ErrorKind}};
+use std::{collections::HashMap, fmt, io::{self, Error, ErrorKind}};
 use strum_macros::{EnumIter, EnumString};
 use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
@@ -116,7 +116,9 @@ pub enum LlrpParameterType {
   GpiPortCurrentState               = 225,
   EventsAndReports                  = 226,
   ROReportSpec                      = 237,
-  TagReportContentSelector          = 238
+  TagReportContentSelector          = 238,
+  TagReportData                     = 240,
+  EPCData                           = 241
 }
 
 impl LlrpParameterType {
@@ -330,7 +332,7 @@ impl LlrpMessage {
 
           /* Fields */
           //buffer.put_u16(768); // ReportContentSelector (TagInfo/EPC)
-          buffer.put_u16(0); // ReportContentSelector (TagInfo/EPC)
+          buffer.put_u16(0x0001); // ReportContentSelector (TagInfo/EPC)
         }
         _ => {}
       }
@@ -494,50 +496,174 @@ impl LlrpResponse {
   /// Decodes the payload for specific response types (e.g., TagReports)
   pub fn decode(
     &self
-  ) -> io::Result<()> {
+  //) -> io::Result<()> {
+  ) -> io::Result<Vec<TagReportData>> {
+
+    let mut tag_reports = Vec::new();
+    
     match self.message_type {
 
       LlrpMessageType::ROAccessReport => {
+        
         let mut buf = BytesMut::from(&self.payload[..]);
+        let parameters = parse_parameters(&mut buf)?;
 
-        while buf.remaining() > 0 {
-          let tag_report = TagReport::decode(&mut buf)?;
-          println!("Decoded TagReport: {:?}", tag_report);
+        for parameter in parameters {
+          match parameter.param_type {
+
+            LlrpParameterType::TagReportData => {
+              let tag_report_data = TagReportData::decode(&parameter.param_value)?;
+              //println!("Decoded TagReportData: {:?}", tag_report_data);
+              tag_reports.push(tag_report_data);
+            }
+
+            _ => {
+              //println!("Unhandled parameter type: {:?}", self.message_type);
+            }
+          }
         }
       }
 
       LlrpMessageType::ErrorMessage => {
-        println!("Error Message Payload: {:?}", self.payload);
+        println!("Error Message payload: {:?}", self.payload);
       }
       _ => {
         println!("Unhandled message type: {}", self.message_type.value());
       }
     }
 
-    Ok(())
+    Ok(tag_reports)
   }
 }
 
 #[derive(Debug)]
-pub struct TagReport {
-  pub epc       : Vec<u8>, // EPC (Electronic Product Code) data
-  pub timestamp : u64,
+pub struct LlrpParameter {
+  pub param_type   : LlrpParameterType,
+  pub param_length : u16,
+  pub param_value  : Vec<u8>
 }
 
-impl TagReport {
+pub fn parse_parameters(buf: &mut BytesMut) -> io::Result<Vec<LlrpParameter>> {
+  let mut parameters = Vec::new();
 
-  pub fn decode(
-    buf: &mut BytesMut
-  ) -> io::Result<Self> {
+  while buf.remaining() >= 4 {
     
-    if buf.len() < 10 {
-      return Err(Error::new(ErrorKind::InvalidData, "Buffer too short for Tag Report"));
+    let param_type_value = buf.get_u16();
+    let param_length = buf.get_u16();
+
+    if param_length < 4 || param_length as usize > buf.remaining() + 4 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Invalid parameter length"
+      ));
     }
 
-    let timestamp    = buf.get_u64();
-    let epc_length = buf.get_u8() as usize;
-    let epc      = buf.split_to(epc_length).to_vec();
+    let param_type = LlrpParameterType::from_value(param_type_value)
+      .ok_or_else(|| Error::new(
+        ErrorKind::InvalidData,
+        "Unknown parameter type"
+      ))?;
 
-    Ok(TagReport { epc, timestamp })
+    let param_value_length = param_length as usize - 4;
+    let param_value = buf.split_to(param_value_length);
+
+    let parameter = LlrpParameter {
+      param_type,
+      param_length,
+      param_value: param_value.to_vec()
+    };
+
+    parameters.push(parameter);
+  }
+
+  Ok(parameters)
+}
+
+#[derive(Debug)]
+pub struct TagReportData {
+  pub epc: Vec<u8>
+}
+
+impl fmt::Display for TagReportData {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    
+    let epc_hex = self.epc.iter()
+      .map(|byte| format!("{:02x}", byte))
+      .collect::<Vec<String>>()
+      .join("");
+
+    write!(f, "{}", epc_hex)
+  }
+}
+
+impl TagReportData {
+
+  pub fn decode(buf: &[u8]) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+    let mut epc = Vec::new();
+
+    while buf.remaining() >= 4 {
+
+      let param_type_value = buf.get_u16();
+      let param_length = buf.get_u16();
+
+      if param_length < 4 || param_length as usize > buf.remaining() + 4 {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Invalid parameter length"
+        ));
+      }
+
+      let param_type = LlrpParameterType::from_value(param_type_value)
+        .ok_or_else(|| Error::new(
+          ErrorKind::InvalidData,
+          "Unknown parameter type"
+        ))?;
+      
+      let param_value_length = param_length as usize - 4;
+      let param_value = buf.split_to(param_value_length);
+
+      match param_type {
+
+        LlrpParameterType::EPCData => {
+          let epc_data = EPCData::decode(&param_value)?;
+          epc = epc_data.epc;
+        }
+
+        _ => {
+          println!("Unhandled sub-parameter type: {:?}", param_type);
+        }
+      }
+    }
+    let tag_report_data = TagReportData { epc };
+    Ok(tag_report_data)
+  }
+}
+
+#[derive(Debug)]
+pub struct EPCData {
+  pub epc: Vec<u8>
+}
+
+impl fmt::Display for EPCData {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    
+    let epc_hex = self.epc.iter()
+      .map(|byte| format!("{:02x}", byte))
+      .collect::<Vec<String>>()
+      .join("");
+
+    write!(f, "{}", epc_hex)
+  }
+}
+
+impl EPCData {
+  pub fn decode(buf: &[u8]) -> io::Result<Self> {
+
+    let epc = buf.to_vec();
+    let epc_data = EPCData { epc };
+
+    Ok(epc_data)
   }
 }
