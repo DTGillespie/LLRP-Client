@@ -659,11 +659,24 @@ impl fmt::Display for EPCData {
 }
 
 impl EPCData {
+  /*
   pub fn decode(buf: &[u8]) -> io::Result<Self> {
 
     let epc = buf.to_vec();
     let epc_data = EPCData { epc };
 
     Ok(epc_data)
+  }
+  */
+
+  pub fn decode(buf: &[u8]) -> io::Result<Self> {
+
+    let epc = if buf.len() > 2 {
+      buf[2..].to_vec()
+    } else {
+      buf.to_vec()
+    };
+
+    Ok(EPCData { epc })
   }
 }
