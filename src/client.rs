@@ -305,7 +305,6 @@ impl LlrpClient {
     let mut buf = BytesMut::with_capacity(1024);
     let result = timeout(Duration::from_millis(self.res_timeout), async {
 
-      // Read header (10 bytes)
       while buf.len() < 10 {
         let n = self.stream.read_buf(&mut buf).await?;
         if n == 0 {
@@ -330,7 +329,6 @@ impl LlrpClient {
         )));
       }
 
-      // Read the entire message (header + payload)
       while buf.len() < message_length as usize {
         let n = self.stream.read_buf(&mut buf).await?;
         if n == 0 {
@@ -344,7 +342,6 @@ impl LlrpClient {
       Ok(())
     }).await;
 
-    // Handle timeout
     if let Err(_) = result {
       return Err(Box::new(std::io::Error::new(
         std::io::ErrorKind::TimedOut,
@@ -352,7 +349,6 @@ impl LlrpClient {
       )));
     }
 
-    // Decode the message
     let llrp_message = LlrpMessage::decode(&mut buf)?;
     let llrp_response = LlrpResponse::from_message(llrp_message);
 

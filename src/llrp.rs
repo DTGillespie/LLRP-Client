@@ -118,7 +118,8 @@ pub enum LlrpParameterType {
   ROReportSpec                      = 237,
   TagReportContentSelector          = 238,
   TagReportData                     = 240,
-  EPCData                           = 241
+  EPCData                           = 241,
+  EPC96                             = 13,
 }
 
 impl LlrpParameterType {
@@ -397,10 +398,6 @@ impl LlrpMessage {
     LlrpMessage::new(LlrpMessageType::DeleteROspec, message_id, payload.to_vec())
   }
 
-  pub fn new_close_connection(message_id: u32) -> Self {
-    LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![])
-  }
-
   /// Encodes the LLRP message into a binary format.
   ///
   /// This includes the LLRP header and the message payload.
@@ -458,20 +455,6 @@ impl LlrpMessage {
   }
 }
 
-fn calculate_total_length(
-  param: &Parameter
-) -> u16 {
-
-  let mut total_length = 4;
-  for sub_param in &param.payload {
-    total_length += calculate_total_length(sub_param);
-  }
-
-  total_length += param.payload.len() as u16;
-
-  total_length
-}
-
 #[derive(Debug)]
 pub struct LlrpResponse {
   pub message_type : LlrpMessageType,
@@ -482,21 +465,20 @@ pub struct LlrpResponse {
 // Base implementation from ChatGPT 
 impl LlrpResponse {
   
-  /// Constructs a new LlrpResponse from a decoded LlrpMessage
+  /// Constructs a new LlrpResponse from a LlrpMessage
   pub fn from_message(
     message: LlrpMessage
   ) -> Self {
     LlrpResponse {
-      message_type: message.message_type,
-      message_id: message.message_id,
-      payload: message.payload,
+      message_type : message.message_type,
+      message_id   : message.message_id,
+      payload      : message.payload,
     }
   }
 
   /// Decodes the payload for specific response types (e.g., TagReports)
   pub fn decode(
     &self
-  //) -> io::Result<()> {
   ) -> io::Result<Vec<TagReportData>> {
 
     let mut tag_reports = Vec::new();
@@ -513,7 +495,6 @@ impl LlrpResponse {
 
             LlrpParameterType::TagReportData => {
               let tag_report_data = TagReportData::decode(&parameter.param_value)?;
-              //println!("Decoded TagReportData: {:?}", tag_report_data);
               tag_reports.push(tag_report_data);
             }
 
@@ -543,37 +524,85 @@ pub struct LlrpParameter {
   pub param_value  : Vec<u8>
 }
 
-pub fn parse_parameters(buf: &mut BytesMut) -> io::Result<Vec<LlrpParameter>> {
+pub fn parse_parameters(
+  buf: &mut BytesMut
+) -> io::Result<Vec<LlrpParameter>> {
+
   let mut parameters = Vec::new();
 
-  while buf.remaining() >= 4 {
-    
-    let param_type_value = buf.get_u16();
-    let param_length = buf.get_u16();
+  while buf.remaining() > 0 {
 
-    if param_length < 4 || param_length as usize > buf.remaining() + 4 {
-      return Err(Error::new(
-        ErrorKind::InvalidData,
-        "Invalid parameter length"
-      ));
+    // Check if TLV or TV encoded parameter
+    let first_byte = buf[0];
+    if (first_byte & 0x80) != 0 {
+
+      let param_type_value = buf.get_u8();
+      let param_type = LlrpParameterType::from_value((param_type_value & 0x7F) as u16)
+        .ok_or_else(|| Error::new(
+          ErrorKind::InvalidData,
+          format!("Unknown TV parameter type {}", param_type_value & 0x7F)
+        ))?;
+
+      let param_value_length = match param_type {
+        LlrpParameterType::EPC96 => 12, // EPC-96 is always 12 bytes
+        _ => return Err(Error::new(
+          ErrorKind::InvalidData,
+          format!("Unhandled TV parameter type {:?}", param_type)
+        )),
+      };
+
+      if buf.remaining() < param_value_length {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Buffer too short for TV parameter value"
+        ));
+      }
+
+      let param_value = buf.split_to(param_value_length);
+
+      let parameter = LlrpParameter {
+        param_type,
+        param_length: (1 + param_value_length) as u16, // Type byte + value length
+        param_value: param_value.to_vec(),
+      };
+
+      parameters.push(parameter);
+    } else {
+
+      if buf.remaining() < 4 {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Buffer too short for TLV parameter header"
+        ));
+      }
+
+      let param_type_value = buf.get_u16();
+      let param_length = buf.get_u16();
+
+      if param_length < 4 || param_length as usize > buf.remaining() + 4 {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Invalid TLV parameter length"
+        ));
+      }
+
+      let param_type = LlrpParameterType::from_value(param_type_value)
+        .ok_or_else(|| Error::new(
+          ErrorKind::InvalidData,
+          format!("Unknown TLV parameter type {}", param_type_value)
+        ))?;
+
+      let param_value_length = param_length as usize - 4;
+      let param_value = buf.split_to(param_value_length);
+      
+      let parameter = LlrpParameter {
+        param_type,
+        param_length,
+        param_value: param_value.to_vec(),
+      };
+
+      parameters.push(parameter);
     }
-
-    let param_type = LlrpParameterType::from_value(param_type_value)
-      .ok_or_else(|| Error::new(
-        ErrorKind::InvalidData,
-        "Unknown parameter type"
-      ))?;
-
-    let param_value_length = param_length as usize - 4;
-    let param_value = buf.split_to(param_value_length);
-
-    let parameter = LlrpParameter {
-      param_type,
-      param_length,
-      param_value: param_value.to_vec()
-    };
-
-    parameters.push(parameter);
   }
 
   Ok(parameters)
@@ -585,7 +614,10 @@ pub struct TagReportData {
 }
 
 impl fmt::Display for TagReportData {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(
+    &self, 
+    f: &mut fmt::Formatter<'_>
+  ) -> fmt::Result {
     
     let epc_hex = self.epc.iter()
       .map(|byte| format!("{:02x}", byte))
@@ -597,47 +629,36 @@ impl fmt::Display for TagReportData {
 }
 
 impl TagReportData {
-
-  pub fn decode(buf: &[u8]) -> io::Result<Self> {
+  
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
 
     let mut buf = BytesMut::from(buf);
     let mut epc = Vec::new();
 
-    while buf.remaining() >= 4 {
+    let parameters = parse_parameters(&mut buf)?;
 
-      let param_type_value = buf.get_u16();
-      let param_length = buf.get_u16();
-
-      if param_length < 4 || param_length as usize > buf.remaining() + 4 {
-        return Err(Error::new(
-          ErrorKind::InvalidData,
-          "Invalid parameter length"
-        ));
-      }
-
-      let param_type = LlrpParameterType::from_value(param_type_value)
-        .ok_or_else(|| Error::new(
-          ErrorKind::InvalidData,
-          "Unknown parameter type"
-        ))?;
-      
-      let param_value_length = param_length as usize - 4;
-      let param_value = buf.split_to(param_value_length);
-
-      match param_type {
+    for parameter in parameters {
+      match parameter.param_type {
 
         LlrpParameterType::EPCData => {
-          let epc_data = EPCData::decode(&param_value)?;
+          let epc_data = EPCData::decode(&parameter.param_value)?;
+          epc = epc_data.epc;
+        }
+
+        LlrpParameterType::EPC96 => {
+          let epc_data = EPCData::decode_epc96(&parameter.param_value)?;
           epc = epc_data.epc;
         }
 
         _ => {
-          println!("Unhandled sub-parameter type: {:?}", param_type);
+          println!("Unhandled sub-parameter type: {:?}", parameter.param_type);
         }
       }
     }
-    let tag_report_data = TagReportData { epc };
-    Ok(tag_report_data)
+
+    Ok(TagReportData { epc })
   }
 }
 
@@ -647,7 +668,10 @@ pub struct EPCData {
 }
 
 impl fmt::Display for EPCData {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(
+    &self, 
+    f: &mut fmt::Formatter<'_>
+  ) -> fmt::Result {
     
     let epc_hex = self.epc.iter()
       .map(|byte| format!("{:02x}", byte))
@@ -659,24 +683,47 @@ impl fmt::Display for EPCData {
 }
 
 impl EPCData {
-  /*
-  pub fn decode(buf: &[u8]) -> io::Result<Self> {
+  
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 2 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for EPCData Bit Field Length"
+      ));
+    }
+
+    let bit_field_length = buf.get_u16();
+    let epc_byte_length = ((bit_field_length + 7) / 8) as usize;
+
+    if buf.remaining() < epc_byte_length {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for EPCData EPC field"
+      ));
+    }
+
+    let epc = buf.split_to(epc_byte_length).to_vec();
+
+    Ok(EPCData { epc })
+  }
+
+  pub fn decode_epc96(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    if buf.len() != 12 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "EPC96 data must be 12 bytes",
+      ));
+    }
 
     let epc = buf.to_vec();
-    let epc_data = EPCData { epc };
-
-    Ok(epc_data)
-  }
-  */
-
-  pub fn decode(buf: &[u8]) -> io::Result<Self> {
-
-    let epc = if buf.len() > 2 {
-      buf[2..].to_vec()
-    } else {
-      buf.to_vec()
-    };
-
     Ok(EPCData { epc })
   }
 }
