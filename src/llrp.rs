@@ -213,6 +213,16 @@ impl LlrpMessage {
   ) -> Self {
     LlrpMessage::new(LlrpMessageType::EnableEventsAndReports, message_id, vec![])
   }
+
+  pub fn new_get_reader_capabilities(
+    message_id: u32
+  ) -> Self {
+
+    let mut payload = BytesMut::new();
+    payload.put_u8(0);
+
+    LlrpMessage::new(LlrpMessageType::GetReaderCapabilities, message_id, payload.to_vec())
+  }
   
   /// Constructs a new `SetReaderConfig` message
   /// 
@@ -565,6 +575,35 @@ impl LlrpResponse {
     }
 
     Ok(tag_reports)
+  }
+
+  pub fn decode_reader_capabilities(&self) -> Result<Vec<LlrpParameter>, Box<dyn std::error::Error>> {
+    let mut buf = BytesMut::from(&self.payload[..]);
+    let parameters = parse_parameters(&mut buf)?;
+
+    println!("Decoding Reader Config Response:");
+    for param in &parameters {
+      match param.param_type {
+
+        LlrpParameterType::GeneralDeviceCapabilities => {
+          println!("General Device Capabilities: {:?}", param.param_value);
+        }
+
+        LlrpParameterType::AntennaConfiguration => {
+          println!("Antenna Configuration: {:?}", param.param_value);
+        }
+
+        LlrpParameterType::LlrpCapabilities => {
+          println!("LLRP Capabilities: {:?}", param.param_value);
+        }
+
+        _ => {
+          println!("Unhandled parameter type: {:?}", param.param_type);
+        }
+      }
+    }
+
+    Ok(parameters)
   }
 }
 

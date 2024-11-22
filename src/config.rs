@@ -4,10 +4,11 @@ use serde_json;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-  pub host        : String,
-  pub res_timeout : u64,
-  pub debug       : bool,
-  pub ROSpec      : ROSpecConfig
+  pub host                    : String,
+  pub res_timeout             : u64,
+  pub debug                   : bool,
+  pub get_reader_capabilities : bool,
+  pub ROSpec                  : ROSpecConfig
 }
 
 #[derive(Debug, Deserialize, Serialize)]

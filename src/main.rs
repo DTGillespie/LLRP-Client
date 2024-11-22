@@ -25,12 +25,19 @@ async fn main() {
   let host = &config.host;
   let res_timeout = config.res_timeout;
   let debug = config.debug;
+  let get_reader_capabilities = config.get_reader_capabilities;
 
   match LlrpClient::connect(host, res_timeout, debug).await {
     Ok(mut client) => {
 
       let await_response_ack = Some(debug);
       
+      if get_reader_capabilities {
+        if let Err(e) = client.send_get_reader_capabilities().await {
+          eprintln!("Error during GetReaderCapabilities operation: {}", e)
+        }
+      }
+
       if let Err(e) = client.send_delete_rospec(0x00, await_response_ack).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
       }

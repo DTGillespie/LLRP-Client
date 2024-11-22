@@ -108,6 +108,23 @@ impl LlrpClient {
     Ok(())
   }
 
+  pub async fn send_get_reader_capabilities(
+    &mut self,
+  ) -> Result<(), Box<dyn Error>> {
+
+    let message_id = self.next_message_id();
+
+    let message = LlrpMessage::new_get_reader_capabilities(message_id);
+    self.stream.write_all(&message.encode()).await?;
+
+    let response = self.receive_response().await?;
+    if response.message_type == LlrpMessageType::SetReaderConfigResponse {
+      response.decode_reader_capabilities()?;
+    }
+
+    Ok(())
+  }
+
   pub async fn send_set_reader_config(
     &mut self, 
     await_response_ack: Option<bool>

@@ -2,6 +2,7 @@
   "debug": false,
   "host": "192.168.1.102:5084",
   "res_timeout": 2500,
+  "get_reader_capabilities": true,
   "ROSpec": {
     "rospec_id": 1,
     "priority": 1,
@@ -15,6 +16,5 @@
     "ROReportTriggerType": 1,
     "ROReportTrigger_N": 1,
     "ReportContentSelector": 1
-    
   }
 }
