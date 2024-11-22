@@ -1,8 +1,10 @@
-use bytes::{BytesMut, Buf, BufMut};
 use std::{collections::HashMap, fmt, io::{self, Error, ErrorKind}};
 use strum_macros::{EnumIter, EnumString};
+use bytes::{BytesMut, Buf, BufMut};
 use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
+
+use crate::config::{self, ROSpecConfig};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
@@ -233,7 +235,7 @@ impl LlrpMessage {
   /// - `ROReportSpec`: Configures report generation.
   pub fn new_add_rospec(
     message_id : u32, 
-    rospec_id  : u32
+    config     : &ROSpecConfig
   ) -> Self {
     
     let ro_boundary_spec = Parameter {
@@ -260,8 +262,8 @@ impl LlrpMessage {
 
     fn encode_parameter(
       param     : &Parameter, 
-      buffer    : &mut BytesMut, 
-      rospec_id : u32
+      buffer    : &mut BytesMut,
+      config    : &ROSpecConfig
     ) {
       
       let initial_length_pos = buffer.len();
@@ -271,9 +273,9 @@ impl LlrpMessage {
       match param.param_type {
  
         LlrpParameterType::ROSpec => {
-          buffer.put_u32(rospec_id);
-          buffer.put_u8(1); // Priority
-          buffer.put_u8(0); // CurrentState
+          buffer.put_u32(config.rospec_id);
+          buffer.put_u8(config.priority); // Priority
+          buffer.put_u8(0);               // CurrentState
         }
 
         LlrpParameterType::ROBoundarySpec => {
@@ -283,64 +285,61 @@ impl LlrpMessage {
           buffer.put_u16(5); // Length (static)
 
           /* Fields */
-          buffer.put_u8(0); // ROSpecStartTriggerType
+          buffer.put_u8(config.ROSpecStartTriggerType); // ROSpecStartTriggerType
 
           // ROSpecStopTrigger
           buffer.put_u16(LlrpParameterType::ROSpecStopTrigger.value());
           buffer.put_u16(9); // Length (static)
           
           /* Fields */
-          buffer.put_u8(0);  // ROSpecStopTriggerType (0 - No stop trigger)
+          buffer.put_u8(config.ROSpecStopTriggerType);  // ROSpecStopTriggerType (0 - No stop trigger)
           buffer.put_u32(0); // Null-field padding (Fields not required with ROSpecStoTriggerType=0)
         }
 
         LlrpParameterType::AiSpec => {
 
-          // Antenna configuration, use all 4 antennas
-          buffer.put_u16(4);
-
-          let antenna_ids = vec![1, 2, 3, 4];
+          // Antenna configuration
+          buffer.put_u16(config.antenna_count);
 
           // AntennaID Array (Allocated before AISpecStopTrigger)
-          for antenna_id in antenna_ids {
-            buffer.put_u16(antenna_id);
+          for antenna_id in &config.antennas {
+            buffer.put_u16(*antenna_id);
           }
 
           // AISpecStopTrigger
           buffer.put_u16(LlrpParameterType::AiSpecStopTrigger.value());
-          buffer.put_u16(9); // Length (static)
+          buffer.put_u16(9); // Length (dynamic)
 
           /* Fields */
-          buffer.put_u8(0);  // AISpecStopTriggerType (0 - Stop when ROSpec is done)
-          buffer.put_u32(0); // Null-field padding (Fields not required with AISpecStopTriggerType=0)
+          buffer.put_u8(config.AISpecStopTriggerType); // AISpecStopTriggerType
+          buffer.put_u32(0); // Null-field padding
 
           // InventoryParamSpec
           buffer.put_u16(LlrpParameterType::InventoryParameterSpec.value());
           buffer.put_u16(7); // Length (static)
 
-          buffer.put_u16(1); // InventoryParamSpec ID
-          buffer.put_u8(1);  // AI procotol (1 - EPCGlobal Class 1 Gen 2)
+          buffer.put_u16(config.InventoryParamSpecID); // InventoryParamSpec ID
+          buffer.put_u8(config.AIProtocol); // AiProcotol
         }
 
         LlrpParameterType::ROReportSpec => {
 
-          buffer.put_u8(1);  // ROReportTriggerType
-          buffer.put_u16(1); // N
+          buffer.put_u8(config.ROReportTriggerType); // ROReportTriggerType
+          buffer.put_u16(config.ROReportTrigger_N);  // N
 
           // TagReportContentSelector
           buffer.put_u16(LlrpParameterType::TagReportContentSelector.value());
           buffer.put_u16(6); // Length (static)
 
           /* Fields */
-          //buffer.put_u16(768); // ReportContentSelector (TagInfo/EPC)
-          buffer.put_u16(0x0001); // ReportContentSelector (TagInfo/EPC)
+          buffer.put_u16(config.ReportContentSelector); // ReportContentSelector (TagInfo/EPC)
         }
         _ => {}
       }
 
       // Recursively encode nested parameters.
       for sub_param in &param.payload {
-        encode_parameter(sub_param, buffer, rospec_id); // Recursive call
+        encode_parameter(sub_param, buffer, config); 
       }
 
       let final_length_pos = buffer.len();
@@ -349,7 +348,7 @@ impl LlrpMessage {
       buffer[initial_length_pos + 2..initial_length_pos + 4].copy_from_slice(&actual_length.to_be_bytes());
     };
 
-    encode_parameter(&ro_spec, &mut payload, rospec_id);
+    encode_parameter(&ro_spec, &mut payload, config);
 
     LlrpMessage::new(LlrpMessageType::AddROspec, message_id, payload.to_vec())
   }

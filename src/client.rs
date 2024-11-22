@@ -7,25 +7,31 @@ use std::future::Future;
 use std::time::Duration;
 use bytes::Buf;
 
+use crate::config::ROSpecConfig;
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
 pub struct LlrpClient {
   stream      : TcpStream,
   message_id  : u32,
   res_timeout : u64,
+  debug       : bool,
 }
 
 impl LlrpClient {
 
   pub async fn connect(
-    addr        : &str, 
+    host        : &str, 
     res_timeout : u64,
+    debug       : bool
   ) -> io::Result<Self> {
 
-    let stream = TcpStream::connect(addr).await?;
-    println!("Client connected: {}", addr);
+    let stream = TcpStream::connect(host).await?;
+
+    if debug {
+      println!("Client connected to LLRP server: {}", host);
+    }
     
-    Ok(LlrpClient { stream, message_id: 1001 , res_timeout })
+    Ok(LlrpClient { stream, message_id: 1001 , res_timeout, debug })
   }
 
   pub async fn disconnect(
@@ -121,14 +127,14 @@ impl LlrpClient {
   }
 
   pub async fn send_add_rospec(
-    &mut self, 
-    rospec_id          : u32, 
+    &mut self,
+    rospec_config      : &ROSpecConfig,
     await_response_ack : Option<bool>
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
-    
-    let message = LlrpMessage::new_add_rospec(message_id, rospec_id);
+    let message = LlrpMessage::new_add_rospec(message_id, rospec_config);
+
     self.stream.write_all(&message.encode()).await?;
     
     if await_response_ack.is_some_and(|x| x == true) {
@@ -222,9 +228,9 @@ impl LlrpClient {
   ) {
 
     if expected_response_type != expected_response_type {
-      println!("Warning: Expected {:?} Acknowledgment, received {} instead", get_message_type_str(expected_response_type.value()), get_message_type_str(response_type.value()));
+      println!("[Warning] Expected {:?} Acknowledgment, received {} instead", get_message_type_str(expected_response_type.value()), get_message_type_str(response_type.value()));
     } else {
-      println!("Ack: {}", get_message_type_str(expected_response_type.value()));
+      println!("[ACK] {}", get_message_type_str(expected_response_type.value()));
     }
   }
 

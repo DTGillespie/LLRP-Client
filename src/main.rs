@@ -1,25 +1,35 @@
 mod llrp;
 mod client;
+mod config;
 
-use client::LlrpClient;
+use std::env;
+
+use config::load_config;
 use tokio::{self};
+use client::LlrpClient;
 
 #[tokio::main]
 async fn main() {
 
-  let addr = "192.168.1.102:5084";
-  let debug = false;
+  let current_dir = env::current_dir().unwrap();
+  let config_file = current_dir.join("llrp_config.json");
 
-  match LlrpClient::connect(addr, 2500).await {
+  let config = match load_config(config_file.to_str().unwrap()) {
+    Ok(cfg) => cfg,
+    Err(e) => {
+      eprintln!("Failed to load LLRP configuration: {}", e);
+      return;
+    }
+  };
+  
+  let host = &config.host;
+  let res_timeout = config.res_timeout;
+  let debug = config.debug;
+
+  match LlrpClient::connect(host, res_timeout, debug).await {
     Ok(mut client) => {
-      println!("Connected to LLRP reader: {}", addr);
 
-      let rospec_id = 1;
-      let mut await_response_ack = Some(false);
-      
-      if debug {
-        await_response_ack = Some(true);
-      }
+      let mut await_response_ack = Some(debug);
       
       if let Err(e) = client.send_delete_rospec(0x00, await_response_ack).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
@@ -33,15 +43,15 @@ async fn main() {
         eprintln!("Error during EnableEventsAndReports operation: {}", e);
       }
 
-      if let Err(e) = client.send_add_rospec(rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_add_rospec(&config.ROSpec, await_response_ack).await {
         eprintln!("Error during AddROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_enable_rospec(rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_enable_rospec(config.ROSpec.rospec_id, await_response_ack).await {
         eprintln!("Error during EnableROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_start_rospec(rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_start_rospec(config.ROSpec.rospec_id, await_response_ack).await {
         eprintln!("Error during StartROSpec operation: {}", e);
       }
 
@@ -51,7 +61,7 @@ async fn main() {
           
           Ok(tag_reports) => {
             for tag_report in tag_reports {
-              println!("TagReportData: {}", tag_report);
+              println!("[EPC] {}", tag_report);
             }
           }
 
@@ -64,7 +74,7 @@ async fn main() {
         println!("Error attempting to receive ROAccessReport: {}", e)
       }
 
-      if let Err(e) = client.send_stop_rospec(rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_stop_rospec(config.ROSpec.rospec_id, await_response_ack).await {
         eprintln!("Error during StopROSpec operation: {}", e);
       }
       
