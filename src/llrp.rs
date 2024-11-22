@@ -532,7 +532,7 @@ pub fn parse_parameters(
 
   while buf.remaining() > 0 {
 
-    // Check if TLV or TV encoded parameter
+    // Check if TLV or TV encoded
     let first_byte = buf[0];
     if (first_byte & 0x80) != 0 {
 
@@ -544,7 +544,7 @@ pub fn parse_parameters(
         ))?;
 
       let param_value_length = match param_type {
-        LlrpParameterType::EPC96 => 12, // EPC-96 is always 12 bytes
+        LlrpParameterType::EPC96 => 12,
         _ => return Err(Error::new(
           ErrorKind::InvalidData,
           format!("Unhandled TV parameter type {:?}", param_type)

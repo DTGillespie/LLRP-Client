@@ -10,9 +10,9 @@ use bytes::Buf;
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
 pub struct LlrpClient {
-  stream             : TcpStream,
-  message_id         : u32,
-  res_timeout        : u64,
+  stream      : TcpStream,
+  message_id  : u32,
+  res_timeout : u64,
 }
 
 impl LlrpClient {
@@ -58,8 +58,6 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
 
-    println!("Dispatched: CloseConnection");
-
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::CloseConnectionResponse, response.message_type);
@@ -78,8 +76,6 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
     
-    println!("Dispatched: Keepalive");
-
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::KeepaliveAck, response.message_type);
@@ -98,8 +94,6 @@ impl LlrpClient {
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
     self.stream.write_all(&message.encode()).await?;
     
-    println!("Dispatched: EnableEventsAndReports");
-    
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::EnableEventsAndReports, response.message_type);
@@ -117,8 +111,6 @@ impl LlrpClient {
 
     let message = LlrpMessage::new_set_reader_config(message_id);
     self.stream.write_all(&message.encode()).await?;
-
-    println!("Dispatched: SetReaderConfig");
 
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
@@ -139,8 +131,6 @@ impl LlrpClient {
     let message = LlrpMessage::new_add_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
     
-    println!("Dispatched: AddROSpec {}", rospec_id);
-    
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::AddROspecResponse, response.message_type);
@@ -159,8 +149,6 @@ impl LlrpClient {
 
     let message = LlrpMessage::new_enable_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-
-    println!("Dispatched: EnableROSpec {}", rospec_id);
 
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
@@ -181,8 +169,6 @@ impl LlrpClient {
     let message = LlrpMessage::new_start_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    println!("Dispatched: StartROSpec {}", rospec_id);
-
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::StartROspecResponse, response.message_type);
@@ -202,8 +188,6 @@ impl LlrpClient {
     let message = LlrpMessage::new_stop_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    println!("Dispatched: StopROSpec {}", rospec_id);
-
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::StopROspecResponse, response.message_type);
@@ -222,8 +206,6 @@ impl LlrpClient {
 
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
-
-    println!("Dispatched: DeleteROSpec {}", rospec_id);
 
     if await_response_ack.is_some_and(|x| x == true) {
       let response = self.receive_response().await?;
