@@ -220,11 +220,62 @@ impl LlrpMessage {
   pub fn new_set_reader_config(
     message_id: u32
   ) -> Self {
+    
+    let antenna_configuration = Parameter {
+      param_type: LlrpParameterType::AntennaConfiguration,
+      payload: vec![]
+    };
 
-    let mut payload = BytesMut::with_capacity(1);
-    payload.put_u8(255); // Restore factory settings
+    let mut payload = BytesMut::new();
 
-    LlrpMessage::new(LlrpMessageType::SetReaderConfig, message_id, payload.to_vec())
+    fn encode_parameter(
+      param     : &Parameter, 
+      buffer    : &mut BytesMut
+    ) {
+      
+      let initial_length_pos = buffer.len();
+      buffer.put_u16(param.param_type.value());
+      buffer.put_u16(0); // Length (dynamic)
+
+      match param.param_type {
+
+        LlrpParameterType::AntennaConfiguration => {
+
+          buffer.put_u16(0); // Antenna ID, 0 - All
+
+          // RFReceiver
+          buffer.put_u16(LlrpParameterType::RfReceiver.value());
+          buffer.put_u16(6); // Length (static)
+
+          /* Fields */
+          buffer.put_u16(0); // Receiver sensitivity: 0 - 128
+
+          // RFTransmitter
+          buffer.put_u16(LlrpParameterType::RfTransmitter.value());
+          buffer.put_u16(10);
+
+          /* Fields */
+          buffer.put_u16(0); // HopTableId
+          buffer.put_u16(1); // ChannelIndex
+          buffer.put_u16(100); // Transmit power
+        }
+
+        _ => {}
+      }
+
+      for sub_param in &param.payload {
+        encode_parameter(sub_param, buffer); 
+      }
+
+      let final_length_pos = buffer.len();
+      let actual_length = (final_length_pos - initial_length_pos) as u16;
+
+      buffer[initial_length_pos + 2..initial_length_pos + 4].copy_from_slice(&actual_length.to_be_bytes());
+    };
+
+    encode_parameter(&antenna_configuration, &mut payload);
+
+    LlrpMessage::new(LlrpMessageType::AddROspec, message_id, payload.to_vec())
   }
 
   /// Constructs a new `AddROSpec` message with the specified ROSpec ID.
@@ -334,6 +385,7 @@ impl LlrpMessage {
           /* Fields */
           buffer.put_u16(config.ReportContentSelector); // ReportContentSelector (TagInfo/EPC)
         }
+
         _ => {}
       }
 

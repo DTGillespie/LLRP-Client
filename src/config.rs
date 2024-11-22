@@ -24,6 +24,10 @@ pub struct ROSpecConfig {
   pub ROReportTriggerType    : u8,
   pub ROReportTrigger_N      : u16,
   pub ReportContentSelector  : u16,
+  /*
+  pub transmit_power         : u16,
+  pub hop_frequency          : u32
+  */
 }
 
 pub fn load_config(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {

@@ -31,7 +31,7 @@ impl LlrpClient {
       println!("Client connected to LLRP server: {}", host);
     }
     
-    Ok(LlrpClient { stream, message_id: 1001 , res_timeout, debug })
+    Ok(LlrpClient { stream, message_id: 1001, res_timeout, debug })
   }
 
   pub async fn disconnect(
