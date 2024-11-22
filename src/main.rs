@@ -29,7 +29,7 @@ async fn main() {
   match LlrpClient::connect(host, res_timeout, debug).await {
     Ok(mut client) => {
 
-      let mut await_response_ack = Some(debug);
+      let await_response_ack = Some(debug);
       
       if let Err(e) = client.send_delete_rospec(0x00, await_response_ack).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
@@ -81,6 +81,7 @@ async fn main() {
       if let Err(e) = client.disconnect(None).await {
         eprintln!("Error during CloseConnection operation: {}", e);
       }
+
     }
 
     Err(e) => {

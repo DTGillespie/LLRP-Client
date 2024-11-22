@@ -240,8 +240,8 @@ impl LlrpClient {
     mut response_callback : F
   ) -> Result<(), Box<dyn Error>> 
   where
-    F: FnMut(LlrpResponse) -> Fut + Send + Sync, // Ensure callback is safe to transfer (Send) and share (Sync) across threads.
-    Fut: Future<Output = ()> + Send 
+    F   : FnMut(LlrpResponse) -> Fut + Send + Sync,
+    Fut : Future<Output = ()> + Send 
   {
 
     let _timeout = Duration::from_secs(timeout);
