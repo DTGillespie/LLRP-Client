@@ -13,3 +13,12 @@ strum_macros = "0.24.1"
 once_cell = "1.18.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+lazy_static = "1.4"
+
+[lib]
+name = "llrp_client"
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "test_runtime"
+path = "src/main.rs"

@@ -5,7 +5,6 @@ use serde_json;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
   pub host                     : String,
-  pub get_reader_capabilities  : bool,
   pub await_response_ack       : bool,
   pub response_timeout         : u64,
   pub ro_access_report_timeout : u64,

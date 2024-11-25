@@ -2,7 +2,6 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Instant};
-use std::env;
 use std::error::Error;
 use std::future::Future;
 use std::time::Duration;
@@ -53,7 +52,7 @@ impl LlrpClient {
     Ok(())
   }
 
-  pub fn next_message_id(
+  fn next_message_id(
     &mut self
   ) -> u32 {
 
@@ -251,19 +250,6 @@ impl LlrpClient {
     Ok(())
   }
 
-  fn log_response_acknowledgment(
-    &mut self, 
-    expected_response_type : LlrpMessageType, 
-    response_type          : LlrpMessageType
-  ) {
-
-    if expected_response_type != expected_response_type {
-      println!("[Warning] Expected {:?} Acknowledgment, received {} instead", get_message_type_str(expected_response_type.value()), get_message_type_str(response_type.value()));
-    } else {
-      println!("[ACK] {}", get_message_type_str(expected_response_type.value()));
-    }
-  }
-
   pub async fn await_ro_access_report<Fut, F>(
     &mut self,
     mut response_callback : F
@@ -313,6 +299,19 @@ impl LlrpClient {
     }
 
     Ok(())
+  }
+
+  fn log_response_acknowledgment(
+    &mut self, 
+    expected_response_type : LlrpMessageType, 
+    response_type          : LlrpMessageType
+  ) {
+
+    if expected_response_type != expected_response_type {
+      println!("[Warning] Expected {:?} Acknowledgment, received {} instead", get_message_type_str(expected_response_type.value()), get_message_type_str(response_type.value()));
+    } else {
+      println!("[ACK] {}", get_message_type_str(expected_response_type.value()));
+    }
   }
 
   async fn receive_response(

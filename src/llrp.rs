@@ -4,7 +4,7 @@ use bytes::{BytesMut, Buf, BufMut};
 use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
 
-use crate::config::{self, ROSpecConfig};
+use crate::config::ROSpecConfig;
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
