@@ -2,44 +2,53 @@ use bytes::BytesMut;
 use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Instant};
+use std::env;
 use std::error::Error;
 use std::future::Future;
 use std::time::Duration;
 use bytes::Buf;
 
-use crate::config::ROSpecConfig;
+use crate::config::{ Config, load_config };
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
 pub struct LlrpClient {
   stream      : TcpStream,
   message_id  : u32,
-  res_timeout : u64,
-  debug       : bool,
+  config      : Config
 }
 
 impl LlrpClient {
 
-  pub async fn connect(
-    host        : &str, 
-    res_timeout : u64,
-    debug       : bool
+  pub async fn initialize(
+    configuration_path: &str
   ) -> io::Result<Self> {
 
-    let stream = TcpStream::connect(host).await?;
+    let config = load_config(configuration_path).map_err(|e| {
+      eprintln!("Error loading LLRP configuration: {}", e);
+      io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "Failed to load LLRP configuration. Please verify the configuration file path and content."
+      )
+    })?;
 
-    if debug {
-      println!("Client connected to LLRP server: {}", host);
-    }
+    let stream = TcpStream::connect(&config.host).await.map_err(|e| {
+      eprintln!("Error connecting to LLRP server at {}: {}", config.host, e);
+      io::Error::new(
+        io::ErrorKind::ConnectionRefused,
+        "Unable to connect to LLRP server"
+      )
+    })?;
+
+    println!("Client Successfully Connected to LLRP server: {}", config.host);
     
-    Ok(LlrpClient { stream, message_id: 1001, res_timeout, debug })
+    Ok(LlrpClient { stream, message_id: 1001, config })
   }
 
   pub async fn disconnect(
     &mut self, 
-    await_response_ack: Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
-    self.send_close_connection(await_response_ack).await?;
+    self.send_close_connection().await?;
 
     Ok(())
   }
@@ -56,7 +65,6 @@ impl LlrpClient {
 
   async fn send_close_connection(
     &mut self, 
-    await_response_ack: Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
@@ -64,7 +72,7 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::CloseConnectionResponse, response.message_type);
     }
@@ -74,7 +82,6 @@ impl LlrpClient {
 
   pub async fn send_keep_alive(
     &mut self, 
-    await_response_ack: Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
@@ -82,7 +89,7 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
     
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::KeepaliveAck, response.message_type);
     }
@@ -92,7 +99,6 @@ impl LlrpClient {
 
   pub async fn send_enable_events_and_reports(
     &mut self, 
-    await_response_ack: Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
@@ -100,7 +106,7 @@ impl LlrpClient {
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
     self.stream.write_all(&message.encode()).await?;
     
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::EnableEventsAndReports, response.message_type);
     }
@@ -125,9 +131,25 @@ impl LlrpClient {
     Ok(())
   }
 
+  pub async fn send_get_reader_config(
+    &mut self,
+  ) -> Result<(), Box<dyn Error>> {
+
+    let message_id = self.next_message_id();
+
+    let message = LlrpMessage::new_get_reader_config(message_id);
+    self.stream.write_all(&message.encode()).await?;
+
+    if self.config.await_response_ack {
+      let response = self.receive_response().await?;
+      self.log_response_acknowledgment(LlrpMessageType::GetReaderConfigResponse, response.message_type);
+    }
+
+    Ok(())
+  }
+
   pub async fn send_set_reader_config(
     &mut self, 
-    await_response_ack: Option<bool>
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
@@ -135,7 +157,7 @@ impl LlrpClient {
     let message = LlrpMessage::new_set_reader_config(message_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::SetReaderConfigResponse, response.message_type);
     }
@@ -145,16 +167,14 @@ impl LlrpClient {
 
   pub async fn send_add_rospec(
     &mut self,
-    rospec_config      : &ROSpecConfig,
-    await_response_ack : Option<bool>
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
-    let message = LlrpMessage::new_add_rospec(message_id, rospec_config);
+    let message = LlrpMessage::new_add_rospec(message_id, &self.config.ROSpec);
 
     self.stream.write_all(&message.encode()).await?;
     
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::AddROspecResponse, response.message_type);
     }
@@ -164,16 +184,14 @@ impl LlrpClient {
 
   pub async fn send_enable_rospec(
     &mut self, 
-    rospec_id          : u32, 
-    await_response_ack : Option<bool>
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_enable_rospec(message_id, rospec_id);
+    let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::EnableROspecResponse, response.message_type);
     }
@@ -183,16 +201,14 @@ impl LlrpClient {
 
   pub async fn send_start_rospec(
     &mut self, 
-    rospec_id          : u32, 
-    await_response_ack : Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_start_rospec(message_id, rospec_id);
+    let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::StartROspecResponse, response.message_type);
     }
@@ -202,16 +218,14 @@ impl LlrpClient {
 
   pub async fn send_stop_rospec(
     &mut self, 
-    rospec_id          : u32, 
-    await_response_ack : Option<bool>
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_stop_rospec(message_id, rospec_id);
+    let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::StopROspecResponse, response.message_type);
     }
@@ -220,9 +234,8 @@ impl LlrpClient {
   }
 
   pub async fn send_delete_rospec(
-    &mut self, 
-    rospec_id          : u32, 
-    await_response_ack : Option<bool>
+    &mut self,
+    rospec_id: u32
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
@@ -230,7 +243,7 @@ impl LlrpClient {
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if await_response_ack.is_some_and(|x| x == true) {
+    if self.config.await_response_ack {
       let response = self.receive_response().await?;
       self.log_response_acknowledgment(LlrpMessageType::DeleteROspecResponse, response.message_type);
     }
@@ -253,7 +266,6 @@ impl LlrpClient {
 
   pub async fn await_ro_access_report<Fut, F>(
     &mut self,
-    timeout               : u64,
     mut response_callback : F
   ) -> Result<(), Box<dyn Error>> 
   where
@@ -261,7 +273,7 @@ impl LlrpClient {
     Fut : Future<Output = ()> + Send 
   {
 
-    let _timeout = Duration::from_secs(timeout);
+    let _timeout = Duration::from_millis(self.config.ro_access_report_timeout);
     let start_time = Instant::now();
 
     loop {
@@ -308,7 +320,7 @@ impl LlrpClient {
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     let mut buf = BytesMut::with_capacity(1024);
-    let result = timeout(Duration::from_millis(self.res_timeout), async {
+    let result = timeout(Duration::from_millis(self.config.response_timeout), async {
 
       while buf.len() < 10 {
         let n = self.stream.read_buf(&mut buf).await?;

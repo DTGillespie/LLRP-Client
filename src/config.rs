@@ -4,11 +4,12 @@ use serde_json;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-  pub host                    : String,
-  pub res_timeout             : u64,
-  pub debug                   : bool,
-  pub get_reader_capabilities : bool,
-  pub ROSpec                  : ROSpecConfig
+  pub host                     : String,
+  pub get_reader_capabilities  : bool,
+  pub await_response_ack       : bool,
+  pub response_timeout         : u64,
+  pub ro_access_report_timeout : u64,
+  pub ROSpec                   : ROSpecConfig
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,10 +26,6 @@ pub struct ROSpecConfig {
   pub ROReportTriggerType    : u8,
   pub ROReportTrigger_N      : u16,
   pub ReportContentSelector  : u16,
-  /*
-  pub transmit_power         : u16,
-  pub hop_frequency          : u32
-  */
 }
 
 pub fn load_config(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {

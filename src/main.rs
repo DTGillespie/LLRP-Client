@@ -4,7 +4,6 @@ mod config;
 
 use std::env;
 
-use config::load_config;
 use tokio::{self};
 use client::LlrpClient;
 
@@ -14,55 +13,42 @@ async fn main() {
   let current_dir = env::current_dir().unwrap();
   let config_file = current_dir.join("llrp_config.json");
 
-  let config = match load_config(config_file.to_str().unwrap()) {
-    Ok(cfg) => cfg,
-    Err(e) => {
-      eprintln!("Failed to load LLRP configuration: {}", e);
-      return;
-    }
-  };
-  
-  let host = &config.host;
-  let res_timeout = config.res_timeout;
-  let debug = config.debug;
-  let get_reader_capabilities = config.get_reader_capabilities;
-
-  match LlrpClient::connect(host, res_timeout, debug).await {
+  match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
-      let await_response_ack = Some(debug);
-      
-      if get_reader_capabilities {
-        if let Err(e) = client.send_get_reader_capabilities().await {
-          eprintln!("Error during GetReaderCapabilities operation: {}", e)
-        }
+      if let Err(e) = client.send_get_reader_capabilities().await {
+        eprintln!("Error during GetReaderCapabilities operation: {}", e)
       }
 
-      if let Err(e) = client.send_delete_rospec(0x00, await_response_ack).await {
+      if let Err(e) = client.send_delete_rospec(0).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
       }
       
-      if let Err(e) = client.send_set_reader_config(await_response_ack).await {
-        eprintln!("Error during SendReaderConfig operation: {}", e);
+      if let Err(e) = client.send_set_reader_config().await {
+        eprintln!("Error during SetReaderConfig operation: {}", e);
       }
 
-      if let Err(e) = client.send_enable_events_and_reports(await_response_ack).await {
+      if let Err(e) = client.send_get_reader_config().await {
+        eprintln!("Error during GetReaderConfig operation: {}", e);
+      }
+
+      if let Err(e) = client.send_enable_events_and_reports().await {
         eprintln!("Error during EnableEventsAndReports operation: {}", e);
       }
 
-      if let Err(e) = client.send_add_rospec(&config.ROSpec, await_response_ack).await {
+      if let Err(e) = client.send_add_rospec().await {
         eprintln!("Error during AddROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_enable_rospec(config.ROSpec.rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_enable_rospec().await {
         eprintln!("Error during EnableROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.send_start_rospec(config.ROSpec.rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_start_rospec().await {
         eprintln!("Error during StartROSpec operation: {}", e);
       }
 
-      if let Err(e) = client.await_ro_access_report(5, | response | async move {
+      if let Err(e) = client.await_ro_access_report( | response | async move {
         
         match response.decode() {
           
@@ -81,14 +67,13 @@ async fn main() {
         println!("Error attempting to receive ROAccessReport: {}", e)
       }
 
-      if let Err(e) = client.send_stop_rospec(config.ROSpec.rospec_id, await_response_ack).await {
+      if let Err(e) = client.send_stop_rospec().await {
         eprintln!("Error during StopROSpec operation: {}", e);
       }
       
-      if let Err(e) = client.disconnect(None).await {
+      if let Err(e) = client.disconnect().await {
         eprintln!("Error during CloseConnection operation: {}", e);
       }
-
     }
 
     Err(e) => {

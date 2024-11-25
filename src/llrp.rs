@@ -196,7 +196,9 @@ impl LlrpMessage {
     message_id   : u32, 
     payload      : Vec<u8>
   ) -> Self {
+
     let message_length = 10 + payload.len() as u32;
+
     LlrpMessage {
       message_type,
       message_length,
@@ -223,6 +225,20 @@ impl LlrpMessage {
 
     LlrpMessage::new(LlrpMessageType::GetReaderCapabilities, message_id, payload.to_vec())
   }
+
+  pub fn new_get_reader_config(
+    message_id: u32
+  ) -> Self {
+
+    let mut payload = BytesMut::new();
+
+    payload.put_u16(0);
+    payload.put_u8(0);
+    payload.put_u16(0);
+    payload.put_u16(0);
+
+    LlrpMessage::new(LlrpMessageType::GetReaderConfig, message_id, payload.to_vec())
+  }
   
   /// Constructs a new `SetReaderConfig` message
   /// 
@@ -230,13 +246,25 @@ impl LlrpMessage {
   pub fn new_set_reader_config(
     message_id: u32
   ) -> Self {
-    
-    let antenna_configuration = Parameter {
-      param_type: LlrpParameterType::AntennaConfiguration,
+
+    let rf_receiver = Parameter {
+      param_type: LlrpParameterType::RfReceiver,
       payload: vec![]
     };
 
+    let rf_transmitter = Parameter {
+      param_type: LlrpParameterType::RfTransmitter,
+      payload: vec![]
+    };
+    
+    let antenna_configuration = Parameter {
+      param_type: LlrpParameterType::AntennaConfiguration,
+      payload: vec![rf_receiver, rf_transmitter]
+    };
+
     let mut payload = BytesMut::new();
+
+    payload.put_u8(128); // ResetToFactoryDefault (First bit is boolean value)
 
     fn encode_parameter(
       param     : &Parameter, 
@@ -244,30 +272,24 @@ impl LlrpMessage {
     ) {
       
       let initial_length_pos = buffer.len();
+
       buffer.put_u16(param.param_type.value());
       buffer.put_u16(0); // Length (dynamic)
 
       match param.param_type {
 
         LlrpParameterType::AntennaConfiguration => {
+          buffer.put_u16(0); // Antenna ID (0 - All)
+        }
 
-          buffer.put_u16(0); // Antenna ID, 0 - All
+        LlrpParameterType::RfReceiver => {
+          buffer.put_u16(0); // Receive Sensitivity table index
+        }
 
-          // RFReceiver
-          buffer.put_u16(LlrpParameterType::RfReceiver.value());
-          buffer.put_u16(6); // Length (static)
-
-          /* Fields */
-          buffer.put_u16(0); // Receiver sensitivity: 0 - 128
-
-          // RFTransmitter
-          buffer.put_u16(LlrpParameterType::RfTransmitter.value());
-          buffer.put_u16(10);
-
-          /* Fields */
-          buffer.put_u16(0); // HopTableId
+        LlrpParameterType::RfTransmitter => {
+          buffer.put_u16(1); // HopTableId
           buffer.put_u16(1); // ChannelIndex
-          buffer.put_u16(100); // Transmit power
+          buffer.put_u16(0); // Transmit Power table index
         }
 
         _ => {}
@@ -285,7 +307,7 @@ impl LlrpMessage {
 
     encode_parameter(&antenna_configuration, &mut payload);
 
-    LlrpMessage::new(LlrpMessageType::AddROspec, message_id, payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::SetReaderConfig, message_id, payload.to_vec())
   }
 
   /// Constructs a new `AddROSpec` message with the specified ROSpec ID.
