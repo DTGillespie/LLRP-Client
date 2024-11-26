@@ -329,17 +329,30 @@ pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn free_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
-  unsafe {
+  if !client_ptr.is_null() {
 
-    if client_ptr.is_null() {
-      set_last_error("Null client pointer");
-      return -1;
+    unsafe {
+      let _ = Box::from_raw(client_ptr);
     }
+    
+    0
+  } else {
+    set_last_error("Null client pointer");
+    return -1;
+  }
+}
 
-    if !client_ptr.is_null() {
-      let _ = Box::from_raw(client_ptr); // Take ownership and free memory
+#[no_mangle]
+pub extern "C" fn free_string(string_ptr: *mut c_char) -> i32 {
+  if !string_ptr.is_null() {
+    
+    unsafe {
+      let _ = CString::from_raw(string_ptr);
     }
 
     0
+  } else {
+    set_last_error("Null string pointer");
+    return -1;
   }
 }
