@@ -19,28 +19,19 @@ lazy_static! {
   static ref RO_ACCESS_REPORT_CALLBACK: Mutex<Option<ROAccessReportCallback>> = Mutex::new(None);
 }
 
-#[no_mangle]
-pub extern "C" fn get_last_error() -> *const c_char {
-  let error = LAST_ERROR.lock().unwrap();
-  match &*error {
-    Some(err) => CString::new(err.clone()).unwrap().into_raw(),
-    None => ptr::null(),
-  }
-}
-
-fn set_last_error(err: &str) {
-  *LAST_ERROR.lock().unwrap() = Some(err.to_string());
-}
-
 // Opaque pointer to represent `LlrpClient` in C
 pub struct LlrpClientWrapper(LlrpClient);
 
 #[no_mangle]
 pub extern "C" fn initialize_client(config_path: *const c_char) -> *mut LlrpClientWrapper {
 
-  // Convert `config_path` to Rust `String`
-  let config_path = unsafe {
-    assert!(!config_path.is_null());
+  let config_path: String = unsafe {
+    
+    if config_path.is_null() {
+      set_last_error("Null config path pointer");
+      return ptr::null_mut();
+    }
+
     CStr::from_ptr(config_path).to_string_lossy().into_owned()
   };
 
@@ -48,7 +39,10 @@ pub extern "C" fn initialize_client(config_path: *const c_char) -> *mut LlrpClie
 
   match client_result {
     Ok(client) => Box::into_raw(Box::new(LlrpClientWrapper(client))),
-    Err(_) => ptr::null_mut(),
+    Err(e) => {
+      set_last_error(&e.to_string());
+      ptr::null_mut()
+    }
   }
 }
 
@@ -320,10 +314,14 @@ pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
       return -1;
     }
 
-    let mut client = Box::from_raw(client_ptr); // Take ownership and free memory
-    let _ = RUNTIME.block_on(client.0.disconnect());
-
-    0
+    let client = &mut *client_ptr;
+    match RUNTIME.block_on(client.0.disconnect()) {
+      Ok(_) => 0,
+      Err(e) => {
+        set_last_error(&e.to_string());
+        -1
+      }
+    }
   }
 }
 
@@ -355,4 +353,17 @@ pub extern "C" fn free_string(string_ptr: *mut c_char) -> i32 {
     set_last_error("Null string pointer");
     return -1;
   }
+}
+
+#[no_mangle]
+pub extern "C" fn get_last_error() -> *const c_char {
+  let error = LAST_ERROR.lock().unwrap();
+  match &*error {
+    Some(err) => CString::new(err.clone()).unwrap().into_raw(),
+    None => ptr::null(),
+  }
+}
+
+fn set_last_error(err: &str) {
+  *LAST_ERROR.lock().unwrap() = Some(err.to_string());
 }
