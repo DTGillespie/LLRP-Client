@@ -312,24 +312,34 @@ pub extern "C" fn await_ro_access_report(client_ptr: *mut LlrpClientWrapper) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) {
+pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
   unsafe {
     
     if client_ptr.is_null() {
       set_last_error("Null client pointer");
-      return;
+      return -1;
     }
 
     let mut client = Box::from_raw(client_ptr); // Take ownership and free memory
     let _ = RUNTIME.block_on(client.0.disconnect());
+
+    0
   }
 }
 
 #[no_mangle]
-pub extern "C" fn free_client(client_ptr: *mut LlrpClientWrapper) {
+pub extern "C" fn free_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
   unsafe {
+
+    if client_ptr.is_null() {
+      set_last_error("Null client pointer");
+      return -1;
+    }
+
     if !client_ptr.is_null() {
       let _ = Box::from_raw(client_ptr); // Take ownership and free memory
     }
+
+    0
   }
 }
