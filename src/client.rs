@@ -71,8 +71,9 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::CloseConnectionResponse, response.message_type);
     }
     
@@ -88,8 +89,9 @@ impl LlrpClient {
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
     self.stream.write_all(&message.encode()).await?;
     
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::KeepaliveAck, response.message_type);
     }
 
@@ -105,8 +107,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
     self.stream.write_all(&message.encode()).await?;
     
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::EnableEventsAndReports, response.message_type);
     }
 
@@ -123,6 +126,7 @@ impl LlrpClient {
     self.stream.write_all(&message.encode()).await?;
 
     let response = self.receive_response().await?;
+
     if response.message_type == LlrpMessageType::SetReaderConfigResponse {
       response.decode_reader_capabilities()?;
     }
@@ -139,8 +143,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_get_reader_config(message_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::GetReaderConfigResponse, response.message_type);
     }
 
@@ -156,8 +161,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_set_reader_config(message_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::SetReaderConfigResponse, response.message_type);
     }
 
@@ -173,8 +179,9 @@ impl LlrpClient {
 
     self.stream.write_all(&message.encode()).await?;
     
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::AddROspecResponse, response.message_type);
     }
 
@@ -190,8 +197,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::EnableROspecResponse, response.message_type);
     }
 
@@ -207,8 +215,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::StartROspecResponse, response.message_type);
     }
 
@@ -224,8 +233,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::StopROspecResponse, response.message_type);
     }
 
@@ -242,8 +252,9 @@ impl LlrpClient {
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
     self.stream.write_all(&message.encode()).await?;
 
-    if self.config.await_response_ack {
-      let response = self.receive_response().await?;
+    let response = self.receive_response().await?;
+    
+    if self.config.log_response_ack {
       self.log_response_acknowledgment(LlrpMessageType::DeleteROspecResponse, response.message_type);
     }
 
@@ -259,7 +270,7 @@ impl LlrpClient {
     Fut : Future<Output = ()> + Send 
   {
 
-    let _timeout = Duration::from_millis(self.config.ro_access_report_timeout);
+    let _timeout = Duration::from_millis(self.config.response_timeout);
     let start_time = Instant::now();
 
     loop {
@@ -286,7 +297,7 @@ impl LlrpClient {
         Err(e) => {
           if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
             if io_err.kind() == std::io::ErrorKind::TimedOut {
-              println!("Timeout while waiting for ROAccessReport, retrying...");
+              println!("Timeout waiting for ROAccessReport");
               continue;
             } else {
               return Err(e);
@@ -307,9 +318,7 @@ impl LlrpClient {
     response_type          : LlrpMessageType
   ) {
 
-    if expected_response_type != expected_response_type {
-      println!("[Warning] Expected {:?} Acknowledgment, received {} instead", get_message_type_str(expected_response_type.value()), get_message_type_str(response_type.value()));
-    } else {
+    if expected_response_type == response_type {
       println!("[ACK] {}", get_message_type_str(expected_response_type.value()));
     }
   }

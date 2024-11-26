@@ -280,7 +280,7 @@ impl LlrpMessage {
 
         LlrpParameterType::AntennaConfiguration => {
           buffer.put_u16(0); // Antenna ID (0 - All)
-        }
+        } 
 
         LlrpParameterType::RfReceiver => {
           buffer.put_u16(0); // Receive Sensitivity table index
@@ -289,7 +289,7 @@ impl LlrpMessage {
         LlrpParameterType::RfTransmitter => {
           buffer.put_u16(1); // HopTableId
           buffer.put_u16(1); // ChannelIndex
-          buffer.put_u16(0); // Transmit Power table index
+          buffer.put_u16(175); // Transmit Power table index
         }
 
         _ => {}

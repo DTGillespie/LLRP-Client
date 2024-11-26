@@ -5,9 +5,8 @@ use serde_json;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
   pub host                     : String,
-  pub await_response_ack       : bool,
+  pub log_response_ack         : bool,
   pub response_timeout         : u64,
-  pub ro_access_report_timeout : u64,
   pub ROSpec                   : ROSpecConfig
 }
 
