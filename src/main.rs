@@ -71,7 +71,7 @@ async fn main() {
         eprintln!("Error during StopROSpec operation: {}", e);
       }
       
-      if let Err(e) = client.disconnect().await {
+      if let Err(e) = client.send_close_connection().await {
         eprintln!("Error during CloseConnection operation: {}", e);
       }
     }

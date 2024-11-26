@@ -306,7 +306,7 @@ pub extern "C" fn await_ro_access_report(client_ptr: *mut LlrpClientWrapper) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
+pub extern "C" fn send_close_connection(client_ptr: *mut LlrpClientWrapper) -> i32 {
   unsafe {
     
     if client_ptr.is_null() {
@@ -315,7 +315,7 @@ pub extern "C" fn disconnect_client(client_ptr: *mut LlrpClientWrapper) -> i32 {
     }
 
     let client = &mut *client_ptr;
-    match RUNTIME.block_on(client.0.disconnect()) {
+    match RUNTIME.block_on(client.0.send_close_connection()) {
       Ok(_) => 0,
       Err(e) => {
         set_last_error(&e.to_string());

@@ -1,22 +1,38 @@
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpStream;
+use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio::time::{timeout, Instant};
+use std::collections::HashMap;
 use std::error::Error;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 use bytes::Buf;
 
+use crate::client;
 use crate::config::{ Config, load_config };
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
 pub struct LlrpClient {
-  stream      : TcpStream,
-  message_id  : u32,
-  config      : Config
+  stream            : Arc<Mutex<TcpStream>>,
+  message_id        : u32,
+  config            : Config,
+  response_handlers : Arc<Mutex<HashMap<u32, oneshot::Sender<LlrpResponse>>>>,
+  ro_report_tx      : broadcast::Sender<LlrpResponse>
 }
 
 impl LlrpClient {
+
+  fn next_message_id(
+    &mut self
+  ) -> u32 {
+
+    let current_id = self.message_id;
+    self.message_id += 1;
+    
+    current_id
+  }
 
   pub async fn initialize(
     configuration_path: &str
@@ -40,44 +56,98 @@ impl LlrpClient {
 
     println!("Client Successfully Connected to LLRP server: {}", config.host);
     
-    Ok(LlrpClient { stream, message_id: 1001, config })
+    let stream = Arc::new(Mutex::new(stream));
+
+    let (ro_report_tx, _) = broadcast::channel(100);
+
+    let client = LlrpClient { 
+      stream: stream.clone(), 
+      message_id: 1001, 
+      config,
+      response_handlers: Arc::new(Mutex::new(HashMap::new())),
+      ro_report_tx
+    };
+
+    let stream_clone = stream.clone();
+    let response_handler_clone = client.response_handlers.clone();
+    let ro_report_tx_clone = client.ro_report_tx.clone();
+
+    tokio::spawn(async move {
+      if let Err(e) = LlrpClient::receive_loop(
+        stream_clone, 
+        response_handler_clone,
+        ro_report_tx_clone
+      ).await {
+        eprintln!("Error in response handler loop: {}", e);
+      }
+    });
+
+    Ok(client)
   }
 
-  pub async fn disconnect(
-    &mut self, 
+  async fn send_message(
+    &mut self,
+    message: LlrpMessage
+  ) -> Result<LlrpResponse, Box<dyn Error>> {
+
+    let message_id = message.message_id;
+    let (sender, receiver) = oneshot::channel();
+
+    {
+      let mut handlers = self.response_handlers.lock().await;
+      handlers.insert(message_id, sender);
+    }
+
+    {
+      let mut stream = self.stream.lock().await;
+      stream.write_all(&message.encode()).await?;
+
+    }
+    
+    let timeout_duration = Duration::from_millis(self.config.response_timeout);
+    match timeout(timeout_duration, receiver).await {
+      
+      Ok(response) => response.map_err(|_| {
+        Box::new(io::Error::new(
+          io::ErrorKind::Other,
+          "Rersponse handler dropped"
+        )) as Box<dyn Error>
+      }),
+
+      Err(_) => {
+        //let mut handlers = self.response_handlers.lock().await;
+        //handlers.remove(&message_id);
+        Err(Box::new(io::Error::new(
+          io::ErrorKind::TimedOut,
+          "Timeout while waiting for response"
+        )))
+      }
+    }
+  }
+
+  async fn send_message_ack(
+    &mut self,
+    message                : LlrpMessage,
+    expected_response_type : LlrpMessageType
   ) -> Result<(), Box<dyn Error>> {
 
-    self.send_close_connection().await?;
+    let response = self.send_message(message).await?;
+    if self.config.log_response_ack {
+      self.log_response_acknowledgment(expected_response_type, response.message_type);
+    }
 
     Ok(())
   }
 
-  fn next_message_id(
-    &mut self
-  ) -> u32 {
-
-    let current_id = self.message_id;
-    self.message_id += 1;
-    
-    current_id
-  }
-
-  async fn send_close_connection(
+  pub async fn send_close_connection(
     &mut self, 
   ) -> Result<(), Box<dyn Error>> {
 
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::CloseConnectionResponse, response.message_type);
-    }
-    
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::CloseConnectionResponse)
+      .await    
   }
 
   pub async fn send_keep_alive(
@@ -87,15 +157,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
-    self.stream.write_all(&message.encode()).await?;
-    
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::KeepaliveAck, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::KeepaliveAck)
+      .await
   }
 
   pub async fn send_enable_events_and_reports(
@@ -105,17 +168,12 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
-    self.stream.write_all(&message.encode()).await?;
+    self.send_message(message).await?;
     
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::EnableEventsAndReports, response.message_type);
-    }
-
     Ok(())
   }
 
+  // Custom response decoding & handling
   pub async fn send_get_reader_capabilities(
     &mut self,
   ) -> Result<(), Box<dyn Error>> {
@@ -123,17 +181,32 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_capabilities(message_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if response.message_type == LlrpMessageType::SetReaderConfigResponse {
+    let response = self.send_message(message).await?;
+    
+    if response.message_type == LlrpMessageType::GetReaderCapabilitiesResponse {
       response.decode_reader_capabilities()?;
+
+      if self.config.log_response_ack {
+        self.log_response_acknowledgment(
+          LlrpMessageType::GetReaderCapabilitiesResponse, 
+          response.message_type
+        );
+      }
+
+    } else {
+      return Err(Box::new(io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+          "Expected GetReaderCapabilitiesResppnse, received: {:?}",
+          response.message_type
+        )
+      )));
     }
 
     Ok(())
   }
 
+  // Custom response decoding & handling
   pub async fn send_get_reader_config(
     &mut self,
   ) -> Result<(), Box<dyn Error>> {
@@ -141,12 +214,26 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_config(message_id);
-    self.stream.write_all(&message.encode()).await?;
+    let response = self.send_message(message).await?;
 
-    let response = self.receive_response().await?;
+    if response.message_type == LlrpMessageType::GetReaderConfigResponse {
+      response.decode_reader_config()?;
 
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::GetReaderConfigResponse, response.message_type);
+      if self.config.log_response_ack {
+        self.log_response_acknowledgment(
+          LlrpMessageType::GetReaderConfigResponse, 
+          response.message_type
+        );
+      }
+
+    } else {
+      return Err(Box::new(io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+          "Expected GetReaderConfigResppnse, received: {:?}",
+          response.message_type
+        )
+      )));
     }
 
     Ok(())
@@ -157,17 +244,10 @@ impl LlrpClient {
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
-
+    
     let message = LlrpMessage::new_set_reader_config(message_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::SetReaderConfigResponse, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::SetReaderConfigResponse)
+      .await
   }
 
   pub async fn send_add_rospec(
@@ -175,17 +255,10 @@ impl LlrpClient {
   ) -> Result<(), Box<dyn Error>> {
     
     let message_id = self.next_message_id();
-    let message = LlrpMessage::new_add_rospec(message_id, &self.config.ROSpec);
-
-    self.stream.write_all(&message.encode()).await?;
     
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::AddROspecResponse, response.message_type);
-    }
-
-    Ok(())
+    let message = LlrpMessage::new_add_rospec(message_id, &self.config.ROSpec);
+    self.send_message_ack(message, LlrpMessageType::AddROspecResponse)
+      .await
   }
 
   pub async fn send_enable_rospec(
@@ -195,15 +268,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::EnableROspecResponse, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::EnableROspecResponse)
+      .await
   }
 
   pub async fn send_start_rospec(
@@ -213,15 +279,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::StartROspecResponse, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::StartROspecResponse)
+      .await
   }
 
   pub async fn send_stop_rospec(
@@ -231,15 +290,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::StopROspecResponse, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::StartROspecResponse)
+      .await
   }
 
   pub async fn send_delete_rospec(
@@ -250,15 +302,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
-    self.stream.write_all(&message.encode()).await?;
-
-    let response = self.receive_response().await?;
-    
-    if self.config.log_response_ack {
-      self.log_response_acknowledgment(LlrpMessageType::DeleteROspecResponse, response.message_type);
-    }
-
-    Ok(())
+    self.send_message_ack(message, LlrpMessageType::DeleteROspecResponse)
+      .await
   }
 
   pub async fn await_ro_access_report<Fut, F>(
@@ -269,6 +314,8 @@ impl LlrpClient {
     F   : FnMut(LlrpResponse) -> Fut + Send + Sync,
     Fut : Future<Output = ()> + Send 
   {
+
+    let mut ro_report_rx = self.ro_report_tx.subscribe();
 
     let _timeout = Duration::from_millis(self.config.response_timeout);
     let start_time = Instant::now();
@@ -283,28 +330,23 @@ impl LlrpClient {
         )));
       }
 
-      match self.receive_response().await {
+      match ro_report_rx.recv().await {
 
         Ok(response) => {
-          if response.message_type == LlrpMessageType::ROAccessReport {
-            response_callback(response).await;
-            break;
-          } else {
-            continue;
-          }
+          response_callback(response).await;
+          break;
         }
 
-        Err(e) => {
-          if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-            if io_err.kind() == std::io::ErrorKind::TimedOut {
-              println!("Timeout waiting for ROAccessReport");
-              continue;
-            } else {
-              return Err(e);
-            }
-          } else {
-            return Err(e);
-          }
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+          eprintln!("Skipped {} messages due to buffer overflow", skipped);
+          continue;
+        }
+
+        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+          return Err(Box::new(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "ROAccessReport channel closed"
+          )));
         }
       }
     }
@@ -323,61 +365,78 @@ impl LlrpClient {
     }
   }
 
-  async fn receive_response(
-    &mut self
-  ) -> Result<LlrpResponse, Box<dyn Error>> {
-
+  async fn receive_loop(
+    stream        : Arc<Mutex<TcpStream>>,
+    response_handlers : Arc<Mutex<HashMap<u32, oneshot::Sender<LlrpResponse>>>>,
+    ro_report_tx      : broadcast::Sender<LlrpResponse>
+  ) -> Result<(), Box<dyn Error>> {
+    
     let mut buf = BytesMut::with_capacity(1024);
-    let result = timeout(Duration::from_millis(self.config.response_timeout), async {
 
-      while buf.len() < 10 {
-        let n = self.stream.read_buf(&mut buf).await?;
-        if n == 0 {
-          return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "Connection closed",
-          )));
+    loop {
+      {
+
+        let mut stream = stream.lock().await;
+
+        while buf.len() < 10 {
+          let n = stream.read_buf(&mut buf).await?;
+          if n == 0 {
+            return Err(Box::new(io::Error::new(
+              io::ErrorKind::UnexpectedEof,
+              "Connected closed"
+            )));
+          }
         }
       }
-
+  
       let mut header_buf = buf.clone();
       let version_type = header_buf.get_u16();
-      let version = (version_type >> 13) & 0x7;
-      let message_type = version_type & 0x3FF;
+      let _version = (version_type >> 10) & 0x7;
+      let _message_type = version_type & 0x3FF;
       let message_length = header_buf.get_u32();
       let message_id = header_buf.get_u32();
-
+  
       if message_length < 10 {
-        return Err(Box::new(std::io::Error::new(
-          std::io::ErrorKind::InvalidData,
-          "Invalid message length in header",
+        return Err(Box::new(io::Error::new(
+          io::ErrorKind::InvalidData,
+          "Invalid message length in header"
         )));
       }
-
+  
       while buf.len() < message_length as usize {
-        let n = self.stream.read_buf(&mut buf).await?;
+
+        let mut stream = stream.lock().await;
+        
+        let n = stream.read_buf(&mut buf).await?;
         if n == 0 {
-          return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "Connection closed",
+          return Err(Box::new(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "Connection closed"
           )));
         }
       }
 
-      Ok(())
-    }).await;
+      let llrp_message = LlrpMessage::decode(&mut buf)?;
+      let llrp_response = LlrpResponse::from_message(llrp_message);
 
-    if let Err(_) = result {
-      return Err(Box::new(std::io::Error::new(
-        std::io::ErrorKind::TimedOut,
-        "Timeout while waiting for response",
-      )));
+      match llrp_response.message_type {
+
+        LlrpMessageType::ROAccessReport => {
+          let _ = ro_report_tx.send(llrp_response);
+        }
+
+        _ => {
+
+          let mut handlers = response_handlers.lock().await;
+          
+          if let Some(sender) = handlers.remove(&llrp_response.message_id) {
+            let _ = sender.send(llrp_response);
+          } else {
+            eprintln!("Received response with unknown message_id: {}", llrp_response.message_id);
+          }
+        }
+      }
     }
-
-    let llrp_message = LlrpMessage::decode(&mut buf)?;
-    let llrp_response = LlrpResponse::from_message(llrp_message);
-
-    Ok(llrp_response)
   }
 
 }

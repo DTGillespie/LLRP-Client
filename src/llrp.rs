@@ -122,6 +122,9 @@ pub enum LlrpParameterType {
   TagReportData                     = 240,
   EPCData                           = 241,
   EPC96                             = 13,
+  ReaderEventNotificationData       = 246,
+  ConnAttemptEvent                  = 256,
+  ConnCloseEvent                    = 287,
 }
 
 impl LlrpParameterType {
@@ -538,17 +541,15 @@ impl LlrpMessage {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LlrpResponse {
   pub message_type : LlrpMessageType,
   pub message_id   : u32,
   pub payload      : Vec<u8>
 }
 
-// Base implementation from ChatGPT 
 impl LlrpResponse {
   
-  /// Constructs a new LlrpResponse from a LlrpMessage
   pub fn from_message(
     message: LlrpMessage
   ) -> Self {
@@ -559,7 +560,6 @@ impl LlrpResponse {
     }
   }
 
-  /// Decodes the payload for specific response types (e.g., TagReports)
   pub fn decode(
     &self
   ) -> io::Result<Vec<TagReportData>> {
@@ -627,6 +627,36 @@ impl LlrpResponse {
 
     Ok(parameters)
   }
+
+  // Not working, just copied logic from decode_reader_capabilities for compilation
+  pub fn decode_reader_config(&self) -> Result<Vec<LlrpParameter>, Box<dyn std::error::Error>> {
+    let mut buf = BytesMut::from(&self.payload[..]);
+    let parameters = parse_parameters(&mut buf)?;
+
+    println!("Decoding Reader Config Response:");
+    for param in &parameters {
+      match param.param_type {
+
+        LlrpParameterType::GeneralDeviceCapabilities => {
+          println!("General Device Capabilities: {:?}", param.param_value);
+        }
+
+        LlrpParameterType::AntennaConfiguration => {
+          println!("Antenna Configuration: {:?}", param.param_value);
+        }
+
+        LlrpParameterType::LlrpCapabilities => {
+          println!("LLRP Capabilities: {:?}", param.param_value);
+        }
+
+        _ => {
+          println!("Unhandled parameter type: {:?}", param.param_type);
+        }
+      }
+    }
+
+    Ok(parameters)
+  }
 }
 
 #[derive(Debug)]
@@ -649,18 +679,25 @@ pub fn parse_parameters(
     if (first_byte & 0x80) != 0 {
 
       let param_type_value = buf.get_u8();
-      let param_type = LlrpParameterType::from_value((param_type_value & 0x7F) as u16)
-        .ok_or_else(|| Error::new(
-          ErrorKind::InvalidData,
-          format!("Unknown TV parameter type {}", param_type_value & 0x7F)
-        ))?;
+      let param_type_value = (param_type_value & 0x7F) as u16;
+
+      let param_type = LlrpParameterType::from_value(param_type_value);
 
       let param_value_length = match param_type {
-        LlrpParameterType::EPC96 => 12,
+
+        Some(LlrpParameterType::EPC96) => 12,
+
+        _ => {
+          println!("Unhandeled TV parameter type {}", param_type_value);
+          continue;
+        }
+
+        /*
         _ => return Err(Error::new(
           ErrorKind::InvalidData,
           format!("Unhandled TV parameter type {:?}", param_type)
         )),
+        */
       };
 
       if buf.remaining() < param_value_length {
@@ -673,8 +710,8 @@ pub fn parse_parameters(
       let param_value = buf.split_to(param_value_length);
 
       let parameter = LlrpParameter {
-        param_type,
-        param_length: (1 + param_value_length) as u16, // Type byte + value length
+        param_type: param_type.unwrap(),
+        param_length: (1 + param_value_length) as u16,
         param_value: param_value.to_vec(),
       };
 
