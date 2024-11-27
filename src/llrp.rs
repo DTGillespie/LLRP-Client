@@ -688,16 +688,10 @@ pub fn parse_parameters(
         Some(LlrpParameterType::EPC96) => 12,
 
         _ => {
-          println!("Unhandeled TV parameter type {}", param_type_value);
+          println!("Unknown TV parameter type {}", param_type_value);
           continue;
         }
 
-        /*
-        _ => return Err(Error::new(
-          ErrorKind::InvalidData,
-          format!("Unhandled TV parameter type {:?}", param_type)
-        )),
-        */
       };
 
       if buf.remaining() < param_value_length {
@@ -735,22 +729,21 @@ pub fn parse_parameters(
         ));
       }
 
-      let param_type = LlrpParameterType::from_value(param_type_value)
-        .ok_or_else(|| Error::new(
-          ErrorKind::InvalidData,
-          format!("Unknown TLV parameter type {}", param_type_value)
-        ))?;
-
       let param_value_length = param_length as usize - 4;
-      let param_value = buf.split_to(param_value_length);
-      
-      let parameter = LlrpParameter {
-        param_type,
-        param_length,
-        param_value: param_value.to_vec(),
-      };
 
-      parameters.push(parameter);
+      if let Some(param_type) = LlrpParameterType::from_value(param_type_value) {
+        let param_value = buf.split_to(param_value_length);
+        let parameter = LlrpParameter {
+          param_type,
+          param_length,
+          param_value: param_value.to_vec()
+        };
+
+        parameters.push(parameter);
+      } else {
+        println!("Unknown TLV parameter type: {}", param_type_value);
+        buf.advance(param_value_length);
+      }
     }
   }
 
