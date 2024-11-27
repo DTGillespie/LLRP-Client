@@ -197,7 +197,7 @@ impl LlrpClient {
       return Err(Box::new(io::Error::new(
         io::ErrorKind::InvalidData,
         format!(
-          "Expected GetReaderCapabilitiesResppnse, received: {:?}",
+          "Expected GetReaderCapabilitiesResponse, received: {:?}",
           response.message_type
         )
       )));
@@ -230,7 +230,7 @@ impl LlrpClient {
       return Err(Box::new(io::Error::new(
         io::ErrorKind::InvalidData,
         format!(
-          "Expected GetReaderConfigResppnse, received: {:?}",
+          "Expected GetReaderConfigResponse, received: {:?}",
           response.message_type
         )
       )));
@@ -429,10 +429,22 @@ impl LlrpClient {
 
           let mut handlers = response_handlers.lock().await;
           
+          /* Original
           if let Some(sender) = handlers.remove(&llrp_response.message_id) {
             let _ = sender.send(llrp_response);
           } else {
             eprintln!("Received response with unknown message_id: {}", llrp_response.message_id);
+          }
+          */
+
+          if let Some(sender) = handlers.remove(&llrp_response.message_id) {
+            let _ = sender.send(llrp_response);
+          } else if let Some((&msg_id, _)) = handlers.iter().next() {
+            if let Some(sender) = handlers.remove(&msg_id) {
+              let _ = sender.send(llrp_response);
+            }
+          } else {
+            eprintln!("Received response with unknown message_id: {}", llrp_response.message_id)
           }
         }
       }

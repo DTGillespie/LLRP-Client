@@ -16,9 +16,11 @@ async fn main() {
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
+      /*
       if let Err(e) = client.send_get_reader_capabilities().await {
         eprintln!("Error during GetReaderCapabilities operation: {}", e)
       }
+      */
 
       if let Err(e) = client.send_delete_rospec(0).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
