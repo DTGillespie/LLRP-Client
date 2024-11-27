@@ -1,9 +1,8 @@
 use bytes::BytesMut;
 use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpStream;
-use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::sync::{broadcast, Mutex};
 use tokio::time::{timeout, Instant};
-use std::collections::HashMap;
 use std::error::Error;
 use std::future::Future;
 use std::sync::Arc;
