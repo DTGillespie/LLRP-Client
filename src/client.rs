@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use bytes::Buf;
 
-use crate::client;
 use crate::config::{ Config, load_config };
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
@@ -18,7 +17,7 @@ pub struct LlrpClient {
   stream            : Arc<Mutex<TcpStream>>,
   message_id        : u32,
   config            : Config,
-  response_handlers : Arc<Mutex<HashMap<LlrpMessageType, oneshot::Sender<LlrpResponse>>>>,
+  message_tx        : broadcast::Sender<LlrpResponse>,
   ro_report_tx      : broadcast::Sender<LlrpResponse>
 }
 
@@ -57,25 +56,27 @@ impl LlrpClient {
     println!("Client Successfully Connected to LLRP server: {}", config.host);
     
     let stream = Arc::new(Mutex::new(stream));
-
+    let (message_tx, _) = broadcast::channel(100);
     let (ro_report_tx, _) = broadcast::channel(100);
+
+    let client_message_tx = message_tx.clone();
 
     let client = LlrpClient { 
       stream: stream.clone(), 
       message_id: 1001, 
       config,
-      response_handlers: Arc::new(Mutex::new(HashMap::new())),
+      message_tx: client_message_tx,
       ro_report_tx
     };
 
     let stream_clone = stream.clone();
-    let response_handler_clone = client.response_handlers.clone();
+    let message_tx_clone = message_tx.clone();
     let ro_report_tx_clone = client.ro_report_tx.clone();
 
     tokio::spawn(async move {
       if let Err(e) = LlrpClient::receive_loop(
         stream_clone, 
-        response_handler_clone,
+        message_tx_clone,
         ro_report_tx_clone
       ).await {
         eprintln!("Error in response handler loop: {}", e);
@@ -91,38 +92,55 @@ impl LlrpClient {
     expected_response_type : LlrpMessageType
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
-    let message_id = message.message_id;
-    let (sender, receiver) = oneshot::channel();
-
-    {
-      let mut handlers = self.response_handlers.lock().await;
-      //handlers.insert(message_id, sender);
-      handlers.insert(expected_response_type, sender);
-    }
-
     {
       let mut stream = self.stream.lock().await;
       stream.write_all(&message.encode()).await?;
-
     }
     
+    let mut message_rx = self.message_tx.subscribe();
     let timeout_duration = Duration::from_millis(self.config.response_timeout);
-    match timeout(timeout_duration, receiver).await {
-      
-      Ok(response) => response.map_err(|_| {
-        Box::new(io::Error::new(
-          io::ErrorKind::Other,
-          "Rersponse handler dropped"
-        )) as Box<dyn Error>
-      }),
+    let start_time = Instant::now();
 
-      Err(_) => {
-        //let mut handlers = self.response_handlers.lock().await;
-        //handlers.remove(&message_id);
-        Err(Box::new(io::Error::new(
+    loop {
+
+      let elapsed = start_time.elapsed();
+      if elapsed >= timeout_duration {
+        return Err(Box::new(io::Error::new(
           io::ErrorKind::TimedOut,
           "Timeout while waiting for response"
-        )))
+        )));
+      }
+
+      match timeout(timeout_duration - elapsed, message_rx.recv()).await {
+
+        Ok(Ok(llrp_response)) => {
+          if llrp_response.message_type == expected_response_type {
+            return Ok(llrp_response);
+          } else {
+            eprintln!(
+              "Received unexpected message type: {:?}",
+              llrp_response.message_type
+            );
+          }
+        }
+
+        Ok(Err(broadcast::error::RecvError::Closed)) => {
+          return Err(Box::new(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "Message channel closed"
+          )));
+        }
+
+        Ok(Err(broadcast::error::RecvError::Lagged(skipped))) => {
+          eprintln!("Missed {} messages due to buffer overflow", skipped);
+        }
+
+        Err(_) => {
+          return Err(Box::new(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Timeout while waiting for response"
+          )));
+        }
       }
     }
   }
@@ -366,8 +384,8 @@ impl LlrpClient {
   }
 
   async fn receive_loop(
-    stream        : Arc<Mutex<TcpStream>>,
-    response_handlers : Arc<Mutex<HashMap<LlrpMessageType, oneshot::Sender<LlrpResponse>>>>,
+    stream            : Arc<Mutex<TcpStream>>,
+    message_tx        : broadcast::Sender<LlrpResponse>,
     ro_report_tx      : broadcast::Sender<LlrpResponse>
   ) -> Result<(), Box<dyn Error>> {
     
@@ -426,7 +444,8 @@ impl LlrpClient {
         }
 
         _ => {
-
+          let _ = message_tx.send(llrp_response);
+          /*
           let mut handlers = response_handlers.lock().await;
 
           if let Some(sender) = handlers.remove(&llrp_response.message_type) {
@@ -438,6 +457,7 @@ impl LlrpClient {
           } */else {
             eprintln!("Received unexpected response: {:?}", llrp_response.message_type)
           }
+          */
         }
       }
     }
