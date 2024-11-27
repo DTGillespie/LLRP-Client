@@ -20,7 +20,6 @@ async fn main() {
       if let Err(e) = client.send_get_reader_capabilities().await {
         eprintln!("Error during GetReaderCapabilities operation: {}", e)
       }
-      */
 
       if let Err(e) = client.send_delete_rospec(0).await {
         eprintln!("Error during DeleteROSpec operation: {}", e);
@@ -29,8 +28,10 @@ async fn main() {
       if let Err(e) = client.send_set_reader_config().await {
         eprintln!("Error during SetReaderConfig operation: {}", e);
       }
+      */
 
       /*
+
       if let Err(e) = client.send_get_reader_config().await {
         eprintln!("Error during GetReaderConfig operation: {}", e);
       }
@@ -43,6 +44,8 @@ async fn main() {
       if let Err(e) = client.send_add_rospec().await {
         eprintln!("Error during AddROSpec operation: {}", e);
       }
+
+      /*
 
       if let Err(e) = client.send_enable_rospec().await {
         eprintln!("Error during EnableROSpec operation: {}", e);
@@ -78,6 +81,7 @@ async fn main() {
       if let Err(e) = client.send_close_connection().await {
         eprintln!("Error during CloseConnection operation: {}", e);
       }
+      */
     }
 
     Err(e) => {

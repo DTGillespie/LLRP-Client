@@ -148,14 +148,14 @@ impl LlrpClient {
     &mut self,
     message                : LlrpMessage,
     expected_response_type : LlrpMessageType
-  ) -> Result<(), Box<dyn Error>> {
+  ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     let response = self.send_message(message, expected_response_type).await?;
     if self.config.log_response_ack {
       self.log_response_acknowledgment(expected_response_type, response.message_type);
     }
 
-    Ok(())
+    Ok(response)
   }
 
   pub async fn send_close_connection(
@@ -165,8 +165,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
-    self.send_message_ack(message, LlrpMessageType::CloseConnectionResponse)
-      .await    
+    self.send_message_ack(message, LlrpMessageType::CloseConnectionResponse).await;
+
+    Ok(())
   }
 
   pub async fn send_keep_alive(
@@ -176,8 +177,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
-    self.send_message_ack(message, LlrpMessageType::KeepaliveAck)
-      .await
+    self.send_message_ack(message, LlrpMessageType::KeepaliveAck).await?;
+
+    Ok(())
   }
 
   pub async fn send_enable_events_and_reports(
@@ -187,7 +189,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
-    self.send_message(message, LlrpMessageType::ReaderEventNotification).await?;
+    self.send_message_ack(message, LlrpMessageType::ReaderEventNotification).await?;
     
     Ok(())
   }
@@ -263,8 +265,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_set_reader_config(message_id);
-    self.send_message_ack(message, LlrpMessageType::SetReaderConfigResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::SetReaderConfigResponse).await?;
+
+    Ok(())
   }
 
   pub async fn send_add_rospec(
@@ -274,8 +277,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_add_rospec(message_id, &self.config.ROSpec);
-    self.send_message_ack(message, LlrpMessageType::AddROspecResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::AddROspecResponse).await?;
+
+    Ok(())
   }
 
   pub async fn send_enable_rospec(
@@ -285,8 +289,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::EnableROspecResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::EnableROspecResponse).await?;
+
+    Ok(())
   }
 
   pub async fn send_start_rospec(
@@ -296,8 +301,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StartROspecResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::StartROspecResponse).await?;
+
+    Ok(())
   }
 
   pub async fn send_stop_rospec(
@@ -307,8 +313,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StartROspecResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::StartROspecResponse).await?;
+
+    Ok(())
   }
 
   pub async fn send_delete_rospec(
@@ -319,8 +326,9 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
-    self.send_message_ack(message, LlrpMessageType::DeleteROspecResponse)
-      .await
+    self.send_message_ack(message, LlrpMessageType::DeleteROspecResponse).await?;
+
+    Ok(())
   }
 
   pub async fn await_ro_access_report<Fut, F>(
@@ -444,19 +452,6 @@ impl LlrpClient {
 
         _ => {
           let _ = message_tx.send(llrp_response);
-          /*
-          let mut handlers = response_handlers.lock().await;
-
-          if let Some(sender) = handlers.remove(&llrp_response.message_type) {
-            let _ = sender.send(llrp_response);
-          } /* else if let Some((&message_type, _)) = handlers.iter().next() {
-            if let Some(sender) = handlers.remove(&message_type) {
-              let _ = sender.send(llrp_response);
-            }
-          } */else {
-            eprintln!("Received unexpected response: {:?}", llrp_response.message_type)
-          }
-          */
         }
       }
     }
