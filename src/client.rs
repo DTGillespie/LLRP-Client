@@ -18,7 +18,7 @@ pub struct LlrpClient {
   stream            : Arc<Mutex<TcpStream>>,
   message_id        : u32,
   config            : Config,
-  response_handlers : Arc<Mutex<HashMap<u32, oneshot::Sender<LlrpResponse>>>>,
+  response_handlers : Arc<Mutex<HashMap<LlrpMessageType, oneshot::Sender<LlrpResponse>>>>,
   ro_report_tx      : broadcast::Sender<LlrpResponse>
 }
 
@@ -87,7 +87,8 @@ impl LlrpClient {
 
   async fn send_message(
     &mut self,
-    message: LlrpMessage
+    message: LlrpMessage,
+    expected_response_type : LlrpMessageType
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     let message_id = message.message_id;
@@ -95,7 +96,8 @@ impl LlrpClient {
 
     {
       let mut handlers = self.response_handlers.lock().await;
-      handlers.insert(message_id, sender);
+      //handlers.insert(message_id, sender);
+      handlers.insert(expected_response_type, sender);
     }
 
     {
@@ -131,7 +133,7 @@ impl LlrpClient {
     expected_response_type : LlrpMessageType
   ) -> Result<(), Box<dyn Error>> {
 
-    let response = self.send_message(message).await?;
+    let response = self.send_message(message, expected_response_type).await?;
     if self.config.log_response_ack {
       self.log_response_acknowledgment(expected_response_type, response.message_type);
     }
@@ -168,12 +170,11 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
-    self.send_message(message).await?;
+    self.send_message(message, LlrpMessageType::ReaderEventNotification).await?;
     
     Ok(())
   }
 
-  // Custom response decoding & handling
   pub async fn send_get_reader_capabilities(
     &mut self,
   ) -> Result<(), Box<dyn Error>> {
@@ -181,7 +182,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_capabilities(message_id);
-    let response = self.send_message(message).await?;
+    let response = self.send_message(message, LlrpMessageType::GetReaderCapabilitiesResponse).await?;
     
     if response.message_type == LlrpMessageType::GetReaderCapabilitiesResponse {
       response.decode_reader_capabilities()?;
@@ -206,7 +207,6 @@ impl LlrpClient {
     Ok(())
   }
 
-  // Custom response decoding & handling
   pub async fn send_get_reader_config(
     &mut self,
   ) -> Result<(), Box<dyn Error>> {
@@ -214,7 +214,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_config(message_id);
-    let response = self.send_message(message).await?;
+    let response = self.send_message(message, LlrpMessageType::GetReaderConfigResponse).await?;
 
     if response.message_type == LlrpMessageType::GetReaderConfigResponse {
       response.decode_reader_config()?;
@@ -367,7 +367,7 @@ impl LlrpClient {
 
   async fn receive_loop(
     stream        : Arc<Mutex<TcpStream>>,
-    response_handlers : Arc<Mutex<HashMap<u32, oneshot::Sender<LlrpResponse>>>>,
+    response_handlers : Arc<Mutex<HashMap<LlrpMessageType, oneshot::Sender<LlrpResponse>>>>,
     ro_report_tx      : broadcast::Sender<LlrpResponse>
   ) -> Result<(), Box<dyn Error>> {
     
@@ -428,23 +428,15 @@ impl LlrpClient {
         _ => {
 
           let mut handlers = response_handlers.lock().await;
-          
-          /* Original
-          if let Some(sender) = handlers.remove(&llrp_response.message_id) {
-            let _ = sender.send(llrp_response);
-          } else {
-            eprintln!("Received response with unknown message_id: {}", llrp_response.message_id);
-          }
-          */
 
-          if let Some(sender) = handlers.remove(&llrp_response.message_id) {
+          if let Some(sender) = handlers.remove(&llrp_response.message_type) {
             let _ = sender.send(llrp_response);
-          } else if let Some((&msg_id, _)) = handlers.iter().next() {
-            if let Some(sender) = handlers.remove(&msg_id) {
+          } /* else if let Some((&message_type, _)) = handlers.iter().next() {
+            if let Some(sender) = handlers.remove(&message_type) {
               let _ = sender.send(llrp_response);
             }
-          } else {
-            eprintln!("Received response with unknown message_id: {}", llrp_response.message_id)
+          } */else {
+            eprintln!("Received unexpected response: {:?}", llrp_response.message_type)
           }
         }
       }

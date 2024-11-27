@@ -30,9 +30,11 @@ async fn main() {
         eprintln!("Error during SetReaderConfig operation: {}", e);
       }
 
+      /*
       if let Err(e) = client.send_get_reader_config().await {
         eprintln!("Error during GetReaderConfig operation: {}", e);
       }
+      */
 
       if let Err(e) = client.send_enable_events_and_reports().await {
         eprintln!("Error during EnableEventsAndReports operation: {}", e);
