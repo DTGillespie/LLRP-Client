@@ -92,8 +92,11 @@ impl LlrpClient {
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     {
+      println!("Attempting to lock stream...");
       let mut stream = self.stream.lock().await;
+      println!("Stream locked, writing...");
       stream.write_all(&message.encode()).await?;
+      println!("Message written, unlocking stream...");
     }
     
     let mut message_rx = self.message_tx.subscribe();
@@ -149,6 +152,8 @@ impl LlrpClient {
     message                : LlrpMessage,
     expected_response_type : LlrpMessageType
   ) -> Result<LlrpResponse, Box<dyn Error>> {
+
+    println!("Debug message: {:?}", message);
 
     let response = self.send_message(message, expected_response_type).await?;
     if self.config.log_response_ack {

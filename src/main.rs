@@ -13,12 +13,16 @@ async fn main() {
   let current_dir = env::current_dir().unwrap();
   let config_file = current_dir.join("llrp_config.json");
 
+  let get_reader_capabilities  = false;
+  let get_reader_config        = false;
+
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
-      /*
-      if let Err(e) = client.send_get_reader_capabilities().await {
-        eprintln!("Error during GetReaderCapabilities operation: {}", e)
+      if get_reader_capabilities {
+        if let Err(e) = client.send_get_reader_capabilities().await {
+          eprintln!("Error during GetReaderCapabilities operation: {}", e)
+        }
       }
 
       if let Err(e) = client.send_delete_rospec(0).await {
@@ -28,14 +32,12 @@ async fn main() {
       if let Err(e) = client.send_set_reader_config().await {
         eprintln!("Error during SetReaderConfig operation: {}", e);
       }
-      */
 
-      /*
-
-      if let Err(e) = client.send_get_reader_config().await {
-        eprintln!("Error during GetReaderConfig operation: {}", e);
+      if get_reader_config {
+        if let Err(e) = client.send_get_reader_config().await {
+          eprintln!("Error during GetReaderConfig operation: {}", e);
+        }
       }
-      */
 
       if let Err(e) = client.send_enable_events_and_reports().await {
         eprintln!("Error during EnableEventsAndReports operation: {}", e);
@@ -44,8 +46,6 @@ async fn main() {
       if let Err(e) = client.send_add_rospec().await {
         eprintln!("Error during AddROSpec operation: {}", e);
       }
-
-      /*
 
       if let Err(e) = client.send_enable_rospec().await {
         eprintln!("Error during EnableROSpec operation: {}", e);
@@ -81,7 +81,6 @@ async fn main() {
       if let Err(e) = client.send_close_connection().await {
         eprintln!("Error during CloseConnection operation: {}", e);
       }
-      */
     }
 
     Err(e) => {
