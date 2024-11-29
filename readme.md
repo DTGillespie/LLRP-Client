@@ -1,4 +1,4 @@
-### Ideal Industrial Configuration
+### Configuration
 | Parameter               | Recommended Setting |
 |-------------------------|-------------------------------------------------------------|
 | RF Mode                 | Lower BDR (e.g., Mode with BDR = 64000 or 120000 bps)       |
