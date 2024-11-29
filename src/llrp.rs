@@ -16,20 +16,20 @@ pub enum LlrpMessageType {
   SetReaderConfigResponse       = 13,
   CloseConnection               = 14,
   CloseConnectionResponse       = 4,
-  AddROspec                     = 20,
+  AddROSpec                     = 20,
   AddROspecResponse             = 30,
-  DeleteROspec                  = 21,
-  DeleteROspecResponse          = 31,
-  StartROspec                   = 22,
-  StartROspecResponse           = 32,
-  StopROspec                    = 23,
-  StopROspecResponse            = 33,
-  EnableROspec                  = 24,
-  EnableROspecResponse          = 34,
-  DisableROspec                 = 25,
-  DisableROspecResponse         = 35,
-  GetROspecs                    = 26,
-  GetROspecsResponse            = 36,
+  DeleteROSpec                  = 21,
+  DeleteROSpecResponse          = 31,
+  StartROSpec                   = 22,
+  StartROSpecResponse           = 32,
+  StopROSpec                    = 23,
+  StopROSpecResponse            = 33,
+  EnableROSpec                  = 24,
+  EnableROSpecResponse          = 34,
+  DisableROSpec                 = 25,
+  DisableROSpecResponse         = 35,
+  GetROSpecs                    = 26,
+  GetROSpecsResponse            = 36,
   GetReport                     = 60,
   ROAccessReport                = 61,
   Keepalive                     = 62,
@@ -437,7 +437,7 @@ impl LlrpMessage {
 
     encode_parameter(&ro_spec, &mut payload, config);
 
-    LlrpMessage::new(LlrpMessageType::AddROspec, message_id, payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::AddROSpec, message_id, payload.to_vec())
   }
 
   pub fn new_enable_rospec(
@@ -448,7 +448,7 @@ impl LlrpMessage {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
     
-    LlrpMessage::new(LlrpMessageType::EnableROspec, message_id, payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::EnableROSpec, message_id, payload.to_vec())
   }
 
   pub fn new_start_rospec(
@@ -459,7 +459,7 @@ impl LlrpMessage {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
     
-    LlrpMessage::new(LlrpMessageType::StartROspec, message_id, payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::StartROSpec, message_id, payload.to_vec())
   }
 
   pub fn new_stop_rospec(
@@ -470,7 +470,7 @@ impl LlrpMessage {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
     
-    LlrpMessage::new(LlrpMessageType::StopROspec, message_id,   payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::StopROSpec, message_id,   payload.to_vec())
   }
 
   pub fn new_delete_rospec(
@@ -481,7 +481,7 @@ impl LlrpMessage {
     let mut payload = BytesMut::with_capacity(4);
     payload.put_u32(rospec_id);
     
-    LlrpMessage::new(LlrpMessageType::DeleteROspec, message_id, payload.to_vec())
+    LlrpMessage::new(LlrpMessageType::DeleteROSpec, message_id, payload.to_vec())
   }
 
   /// Encodes the LLRP message into a binary format.

@@ -1,6 +1,6 @@
 {
   "host": "192.168.1.102:5084",
-  "log_response_ack": true,
+  "log_response_ack": false,
   "response_timeout": 250,
   "ROSpec": {
     "rospec_id": 1,

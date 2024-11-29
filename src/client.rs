@@ -1,5 +1,6 @@
+use bytes::buf::Reader;
 use bytes::BytesMut;
-use tokio::io::{self, AsyncWriteExt, AsyncReadExt};
+use tokio::io::{self, split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, Mutex};
 use tokio::time::{timeout, Instant};
@@ -13,7 +14,8 @@ use crate::config::{ Config, load_config };
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
 
 pub struct LlrpClient {
-  stream            : Arc<Mutex<TcpStream>>,
+  reader            : Arc<Mutex<ReadHalf<TcpStream>>>,
+  writer            : Arc<Mutex<WriteHalf<TcpStream>>>,
   message_id        : u32,
   config            : Config,
   message_tx        : broadcast::Sender<LlrpResponse>,
@@ -54,27 +56,28 @@ impl LlrpClient {
 
     println!("Client Successfully Connected to LLRP server: {}", config.host);
     
-    let stream = Arc::new(Mutex::new(stream));
+    let (reader, writer) = split(stream);
     let (message_tx, _) = broadcast::channel(100);
     let (ro_report_tx, _) = broadcast::channel(100);
 
     let client_message_tx = message_tx.clone();
 
-    let client = LlrpClient { 
-      stream: stream.clone(), 
+    let client = LlrpClient {
+      reader: Arc::new(Mutex::new(reader)),
+      writer: Arc::new(Mutex::new(writer)),
       message_id: 1001, 
       config,
       message_tx: client_message_tx,
       ro_report_tx
     };
 
-    let stream_clone = stream.clone();
+    let reader_clone = client.reader.clone();
     let message_tx_clone = message_tx.clone();
     let ro_report_tx_clone = client.ro_report_tx.clone();
 
     tokio::spawn(async move {
       if let Err(e) = LlrpClient::receive_loop(
-        stream_clone, 
+        reader_clone,
         message_tx_clone,
         ro_report_tx_clone
       ).await {
@@ -92,11 +95,8 @@ impl LlrpClient {
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     {
-      println!("Attempting to lock stream...");
-      let mut stream = self.stream.lock().await;
-      println!("Stream locked, writing...");
-      stream.write_all(&message.encode()).await?;
-      println!("Message written, unlocking stream...");
+      let mut writer = self.writer.lock().await;
+      writer.write_all(&message.encode()).await?;
     }
     
     let mut message_rx = self.message_tx.subscribe();
@@ -152,8 +152,6 @@ impl LlrpClient {
     message                : LlrpMessage,
     expected_response_type : LlrpMessageType
   ) -> Result<LlrpResponse, Box<dyn Error>> {
-
-    println!("Debug message: {:?}", message);
 
     let response = self.send_message(message, expected_response_type).await?;
     if self.config.log_response_ack {
@@ -294,7 +292,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::EnableROspecResponse).await?;
+    self.send_message_ack(message, LlrpMessageType::EnableROSpecResponse).await?;
 
     Ok(())
   }
@@ -306,7 +304,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StartROspecResponse).await?;
+    self.send_message_ack(message, LlrpMessageType::StartROSpecResponse).await?;
 
     Ok(())
   }
@@ -318,7 +316,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StartROspecResponse).await?;
+    self.send_message_ack(message, LlrpMessageType::StopROSpecResponse).await?;
 
     Ok(())
   }
@@ -331,7 +329,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
-    self.send_message_ack(message, LlrpMessageType::DeleteROspecResponse).await?;
+    self.send_message_ack(message, LlrpMessageType::DeleteROSpecResponse).await?;
 
     Ok(())
   }
@@ -396,7 +394,7 @@ impl LlrpClient {
   }
 
   async fn receive_loop(
-    stream            : Arc<Mutex<TcpStream>>,
+    reader            : Arc<Mutex<ReadHalf<TcpStream>>>,
     message_tx        : broadcast::Sender<LlrpResponse>,
     ro_report_tx      : broadcast::Sender<LlrpResponse>
   ) -> Result<(), Box<dyn Error>> {
@@ -406,10 +404,10 @@ impl LlrpClient {
     loop {
       {
 
-        let mut stream = stream.lock().await;
-
+        let mut reader = reader.lock().await;
+        
         while buf.len() < 10 {
-          let n = stream.read_buf(&mut buf).await?;
+          let n = reader.read_buf(&mut buf).await?;
           if n == 0 {
             return Err(Box::new(io::Error::new(
               io::ErrorKind::UnexpectedEof,
@@ -435,9 +433,9 @@ impl LlrpClient {
   
       while buf.len() < message_length as usize {
 
-        let mut stream = stream.lock().await;
+        let mut reader = reader.lock().await;
         
-        let n = stream.read_buf(&mut buf).await?;
+        let n = reader.read_buf(&mut buf).await?;
         if n == 0 {
           return Err(Box::new(io::Error::new(
             io::ErrorKind::UnexpectedEof,
