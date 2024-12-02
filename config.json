@@ -1,8 +1,15 @@
 {
   "host": "192.168.1.102:5084",
-  "log_response_ack": false,
+  "log_level": "debug",
+  "log_response_ack": true,
   "response_timeout": 250,
-  "ROSpec": {
+  "reader_config": {
+    "hop_table_id": 1,
+    "channel_index": 1,
+    "tx_power_table_index": 175,
+    "rx_power_table_index": 1
+  },
+  "rospec": {
     "rospec_id": 1,
     "priority": 1,
     "antenna_count": 4,

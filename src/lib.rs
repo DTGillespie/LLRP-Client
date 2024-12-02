@@ -19,7 +19,6 @@ lazy_static! {
   static ref RO_ACCESS_REPORT_CALLBACK: Mutex<Option<ROAccessReportCallback>> = Mutex::new(None);
 }
 
-// Opaque pointer to represent `LlrpClient` in C
 pub struct LlrpClientWrapper(LlrpClient);
 
 #[no_mangle]

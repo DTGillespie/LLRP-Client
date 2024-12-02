@@ -3,15 +3,16 @@ mod client;
 mod config;
 
 use std::env;
-
+use log::{info, debug, error};
 use tokio::{self};
+
 use client::LlrpClient;
 
 #[tokio::main]
 async fn main() {
 
   let current_dir = env::current_dir().unwrap();
-  let config_file = current_dir.join("llrp_config.json");
+  let config_file = current_dir.join("config.json");
 
   let get_reader_capabilities  = false;
   let get_reader_config        = false;
@@ -21,38 +22,38 @@ async fn main() {
 
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities().await {
-          eprintln!("Error during GetReaderCapabilities operation: {}", e)
+          error!("GetReaderCapabilities error: {}", e)
         }
       }
 
       if let Err(e) = client.send_delete_rospec(0).await {
-        eprintln!("Error during DeleteROSpec operation: {}", e);
+        error!("DeleteROSpec error: {}", e);
       }
       
       if let Err(e) = client.send_set_reader_config().await {
-        eprintln!("Error during SetReaderConfig operation: {}", e);
+        error!("SetReaderConfig error: {}", e);
       }
 
       if get_reader_config {
         if let Err(e) = client.send_get_reader_config().await {
-          eprintln!("Error during GetReaderConfig operation: {}", e);
+          error!("GetReaderConfig error: {}", e);
         }
       }
 
       if let Err(e) = client.send_enable_events_and_reports().await {
-        eprintln!("Error during EnableEventsAndReports operation: {}", e);
+        error!("EnableEventsAndReports error: {}", e);
       }
 
       if let Err(e) = client.send_add_rospec().await {
-        eprintln!("Error during AddROSpec operation: {}", e);
+        error!("AddROSpec error: {}", e);
       }
 
       if let Err(e) = client.send_enable_rospec().await {
-        eprintln!("Error during EnableROSpec operation: {}", e);
+        error!("EnableROSpec error: {}", e);
       }
 
       if let Err(e) = client.send_start_rospec().await {
-        eprintln!("Error during StartROSpec operation: {}", e);
+        error!("StartROSpec error: {}", e);
       }
 
       if let Err(e) = client.await_ro_access_report( | response | async move {
@@ -61,30 +62,30 @@ async fn main() {
           
           Ok(tag_reports) => {
             for tag_report in tag_reports {
-              println!("[EPC] {}", tag_report);
+              debug!("[EPC] {}", tag_report);
             }
           }
 
           Err(e) => {
-            eprintln!("Error decoding ROAccessReport: {}", e);
+            error!("ROAccessReport decoding error: {}", e);
           }
         }
 
       }).await {
-        println!("Error attempting to receive ROAccessReport: {}", e)
+        error!("Error while attempting to receive ROAccessReport: {}", e)
       }
 
       if let Err(e) = client.send_stop_rospec().await {
-        eprintln!("Error during StopROSpec operation: {}", e);
+        error!("StopROSpec error: {}", e);
       }
       
       if let Err(e) = client.send_close_connection().await {
-        eprintln!("Error during CloseConnection operation: {}", e);
+        error!("CloseConnection error: {}", e);
       }
     }
 
     Err(e) => {
-      eprintln!("Failed to connect to LLRP server: {}", e)
+      error!("Failed to connect to LLRP server: {}", e)
     }
   }
 }

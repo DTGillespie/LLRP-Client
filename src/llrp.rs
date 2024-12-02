@@ -3,11 +3,13 @@ use strum_macros::{EnumIter, EnumString};
 use bytes::{BytesMut, Buf, BufMut};
 use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
+use log::{info, debug, warn, error};
 
-use crate::config::ROSpecConfig;
+use crate::config::{ROSpecConfig, ReaderConfig};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
+  None                          = 0,
   GetReaderCapabilities         = 1,
   GetReaderCapabilitiesResponse = 11,
   GetReaderConfig               = 2,
@@ -230,7 +232,7 @@ impl LlrpMessage {
   }
 
   pub fn new_get_reader_config(
-    message_id: u32
+    message_id : u32,
   ) -> Self {
 
     let mut payload = BytesMut::new();
@@ -247,7 +249,8 @@ impl LlrpMessage {
   /// 
   /// This message resets reader configuration to factory settings.
   pub fn new_set_reader_config(
-    message_id: u32
+    message_id : u32,
+    config     : &ReaderConfig,
   ) -> Self {
 
     let rf_receiver = Parameter {
@@ -271,7 +274,8 @@ impl LlrpMessage {
 
     fn encode_parameter(
       param     : &Parameter, 
-      buffer    : &mut BytesMut
+      buffer    : &mut BytesMut,
+      config    : &ReaderConfig
     ) {
       
       let initial_length_pos = buffer.len();
@@ -286,20 +290,20 @@ impl LlrpMessage {
         } 
 
         LlrpParameterType::RfReceiver => {
-          buffer.put_u16(0); // Receive Sensitivity table index
+          buffer.put_u16(config.rx_power_table_index); // Receive Sensitivity Table-index
         }
 
         LlrpParameterType::RfTransmitter => {
-          buffer.put_u16(1); // HopTableId
-          buffer.put_u16(1); // ChannelIndex
-          buffer.put_u16(175); // Transmit Power table index
+          buffer.put_u16(config.hop_table_id);         // HopTableId
+          buffer.put_u16(config.channel_index);        // ChannelIndex
+          buffer.put_u16(config.tx_power_table_index); // Transmit Power Table-index
         }
 
         _ => {}
       }
 
       for sub_param in &param.payload {
-        encode_parameter(sub_param, buffer); 
+        encode_parameter(sub_param, buffer, config); 
       }
 
       let final_length_pos = buffer.len();
@@ -308,7 +312,7 @@ impl LlrpMessage {
       buffer[initial_length_pos + 2..initial_length_pos + 4].copy_from_slice(&actual_length.to_be_bytes());
     };
 
-    encode_parameter(&antenna_configuration, &mut payload);
+    encode_parameter(&antenna_configuration, &mut payload, config);
 
     LlrpMessage::new(LlrpMessageType::SetReaderConfig, message_id, payload.to_vec())
   }
@@ -582,17 +586,17 @@ impl LlrpResponse {
             }
 
             _ => {
-              //println!("Unhandled parameter type: {:?}", self.message_type);
+              warn!("Unhandled parameter type: {:?}", self.message_type);
             }
           }
         }
       }
 
       LlrpMessageType::ErrorMessage => {
-        println!("Error Message payload: {:?}", self.payload);
+        warn!("Error-message payload: {:?}", self.payload);
       }
       _ => {
-        println!("Unhandled message type: {}", self.message_type.value());
+        warn!("Unhandled message type: {}", self.message_type.value());
       }
     }
 
@@ -603,24 +607,24 @@ impl LlrpResponse {
     let mut buf = BytesMut::from(&self.payload[..]);
     let parameters = parse_parameters(&mut buf)?;
 
-    println!("Decoding Reader Config Response:");
+    debug!("Decoding Reader Config Response:");
     for param in &parameters {
       match param.param_type {
 
         LlrpParameterType::GeneralDeviceCapabilities => {
-          println!("General Device Capabilities: {:?}", param.param_value);
+          info!("General Device Capabilities: {:?}", param.param_value);
         }
 
         LlrpParameterType::AntennaConfiguration => {
-          println!("Antenna Configuration: {:?}", param.param_value);
+          info!("Antenna Configuration: {:?}", param.param_value);
         }
 
         LlrpParameterType::LlrpCapabilities => {
-          println!("LLRP Capabilities: {:?}", param.param_value);
+          info!("LLRP Capabilities: {:?}", param.param_value);
         }
 
         _ => {
-          println!("Unhandled parameter type: {:?}", param.param_type);
+          warn!("Unhandled parameter type: {:?}", param.param_type);
         }
       }
     }
@@ -633,24 +637,24 @@ impl LlrpResponse {
     let mut buf = BytesMut::from(&self.payload[..]);
     let parameters = parse_parameters(&mut buf)?;
 
-    println!("Decoding Reader Config Response:");
+    debug!("Decoding Reader Config Response:");
     for param in &parameters {
       match param.param_type {
 
         LlrpParameterType::GeneralDeviceCapabilities => {
-          println!("General Device Capabilities: {:?}", param.param_value);
+          info!("General Device Capabilities: {:?}", param.param_value);
         }
 
         LlrpParameterType::AntennaConfiguration => {
-          println!("Antenna Configuration: {:?}", param.param_value);
+          info!("Antenna Configuration: {:?}", param.param_value);
         }
 
         LlrpParameterType::LlrpCapabilities => {
-          println!("LLRP Capabilities: {:?}", param.param_value);
+          info!("LLRP Capabilities: {:?}", param.param_value);
         }
 
         _ => {
-          println!("Unhandled parameter type: {:?}", param.param_type);
+          warn!("Unhandled parameter type: {:?}", param.param_type);
         }
       }
     }
@@ -688,7 +692,7 @@ pub fn parse_parameters(
         Some(LlrpParameterType::EPC96) => 12,
 
         _ => {
-          println!("Unknown TV parameter type {}", param_type_value);
+          warn!("Unknown TV parameter type {}", param_type_value);
           continue;
         }
 
@@ -741,7 +745,7 @@ pub fn parse_parameters(
 
         parameters.push(parameter);
       } else {
-        println!("Unknown TLV parameter type: {}", param_type_value);
+        warn!("Unknown TLV parameter type: {}", param_type_value);
         buf.advance(param_value_length);
       }
     }
@@ -795,7 +799,7 @@ impl TagReportData {
         }
 
         _ => {
-          println!("Unhandled sub-parameter type: {:?}", parameter.param_type);
+          warn!("Unhandled sub-parameter type: {:?}", parameter.param_type);
         }
       }
     }

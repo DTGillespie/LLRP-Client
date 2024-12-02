@@ -1,4 +1,3 @@
-use bytes::buf::Reader;
 use bytes::BytesMut;
 use tokio::io::{self, split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -6,12 +5,20 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::time::{timeout, Instant};
 use std::error::Error;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 use bytes::Buf;
+use env_logger::{self, Builder};
+use std::fs::OpenOptions;
+use chrono::Local;
+use std::io::Write;
+use log::{info, warn, error, LevelFilter};
+use std::collections::HashMap;
 
 use crate::config::{ Config, load_config };
 use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
+
+static INIT_LOGGER: Once = Once::new();
 
 pub struct LlrpClient {
   reader            : Arc<Mutex<ReadHalf<TcpStream>>>,
@@ -20,6 +27,49 @@ pub struct LlrpClient {
   config            : Config,
   message_tx        : broadcast::Sender<LlrpResponse>,
   ro_report_tx      : broadcast::Sender<LlrpResponse>
+}
+
+fn configure_logger(log_level: &str) {
+  INIT_LOGGER.call_once(|| {
+
+    let file = OpenOptions::new()
+      .create(true) // Create file if it does not exist
+      .append(true) // Append to file instead of truncating it
+      .open("system.log")
+      .expect("Failed to open system.log");
+
+    let mut builder = Builder::from_default_env();
+
+    builder.format(move |buf, record| {
+      let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+      writeln!(buf, "[{}] {} - {}", timestamp, record.level(), record.args())
+    });
+
+    if let Some(level) = parse_log_level(log_level) {
+      builder.filter(None, level);
+    } else {
+      eprintln!("Invalid log level: {}. Defaulting to Debug.", log_level);
+      builder.filter(None, LevelFilter::Debug);
+    }
+
+    builder.target(env_logger::Target::Pipe(Box::new(file)));
+    
+    builder.init();
+  });
+}
+
+fn parse_log_level(level: &str) -> Option<LevelFilter> {
+  
+  let levels: HashMap<&str, LevelFilter> = HashMap::from([
+    ("off", LevelFilter::Off),
+    ("error", LevelFilter::Error),
+    ("warn", LevelFilter::Warn),
+    ("info", LevelFilter::Info),
+    ("debug", LevelFilter::Debug),
+    ("trace", LevelFilter::Trace),
+  ]);
+
+  levels.get(level.to_lowercase().as_str()).cloned()
 }
 
 impl LlrpClient {
@@ -39,22 +89,23 @@ impl LlrpClient {
   ) -> io::Result<Self> {
 
     let config = load_config(configuration_path).map_err(|e| {
-      eprintln!("Error loading LLRP configuration: {}", e);
       io::Error::new(
         io::ErrorKind::InvalidInput,
         "Failed to load LLRP configuration. Please verify the configuration file path and content."
       )
     })?;
 
+    configure_logger(config.log_level.as_str());
+
     let stream = TcpStream::connect(&config.host).await.map_err(|e| {
-      eprintln!("Error connecting to LLRP server at {}: {}", config.host, e);
+      error!("Error connecting to LLRP server at {}: {}", config.host, e);
       io::Error::new(
         io::ErrorKind::ConnectionRefused,
         "Unable to connect to LLRP server"
       )
     })?;
 
-    println!("Client Successfully Connected to LLRP server: {}", config.host);
+    info!("Client Successfully Connected to LLRP server: {}", config.host);
     
     let (reader, writer) = split(stream);
     let (message_tx, _) = broadcast::channel(100);
@@ -81,7 +132,7 @@ impl LlrpClient {
         message_tx_clone,
         ro_report_tx_clone
       ).await {
-        eprintln!("Error in response handler loop: {}", e);
+        error!("Error in response handler loop: {}", e);
       }
     });
 
@@ -97,6 +148,14 @@ impl LlrpClient {
     {
       let mut writer = self.writer.lock().await;
       writer.write_all(&message.encode()).await?;
+    }
+
+    if expected_response_type == LlrpMessageType::None {
+      return Ok(LlrpResponse {
+        message_type: LlrpMessageType::None,
+        message_id: message.message_id,
+        payload: vec![]
+      });
     }
     
     let mut message_rx = self.message_tx.subscribe();
@@ -119,7 +178,7 @@ impl LlrpClient {
           if llrp_response.message_type == expected_response_type {
             return Ok(llrp_response);
           } else {
-            eprintln!(
+            warn!(
               "Received unexpected message type: {:?}",
               llrp_response.message_type
             );
@@ -134,7 +193,7 @@ impl LlrpClient {
         }
 
         Ok(Err(broadcast::error::RecvError::Lagged(skipped))) => {
-          eprintln!("Missed {} messages due to buffer overflow", skipped);
+          warn!("Missed {} messages due to buffer overflow", skipped);
         }
 
         Err(_) => {
@@ -154,7 +213,7 @@ impl LlrpClient {
   ) -> Result<LlrpResponse, Box<dyn Error>> {
 
     let response = self.send_message(message, expected_response_type).await?;
-    if self.config.log_response_ack {
+    if self.config.log_response_ack && expected_response_type != LlrpMessageType::None {
       self.log_response_acknowledgment(expected_response_type, response.message_type);
     }
 
@@ -168,7 +227,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::CloseConnection, message_id, vec![]);
-    self.send_message_ack(message, LlrpMessageType::CloseConnectionResponse).await;
+    let _ = self.send_message_ack(message, LlrpMessageType::CloseConnectionResponse).await;
 
     Ok(())
   }
@@ -180,7 +239,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new(LlrpMessageType::Keepalive, message_id, vec![]);
-    self.send_message_ack(message, LlrpMessageType::KeepaliveAck).await?;
+    let _ = self.send_message_ack(message, LlrpMessageType::KeepaliveAck).await?;
 
     Ok(())
   }
@@ -192,8 +251,8 @@ impl LlrpClient {
     let message_id = self.next_message_id();
     
     let message = LlrpMessage::new_enable_events_and_reports(message_id);
-    self.send_message_ack(message, LlrpMessageType::ReaderEventNotification).await?;
-    
+    let _ = self.send_message_ack(message, LlrpMessageType::None).await?;
+
     Ok(())
   }
 
@@ -267,8 +326,8 @@ impl LlrpClient {
     
     let message_id = self.next_message_id();
     
-    let message = LlrpMessage::new_set_reader_config(message_id);
-    self.send_message_ack(message, LlrpMessageType::SetReaderConfigResponse).await?;
+    let message = LlrpMessage::new_set_reader_config(message_id, &self.config.reader_config);
+    let _ = self.send_message_ack(message, LlrpMessageType::SetReaderConfigResponse).await?;
 
     Ok(())
   }
@@ -279,8 +338,8 @@ impl LlrpClient {
     
     let message_id = self.next_message_id();
     
-    let message = LlrpMessage::new_add_rospec(message_id, &self.config.ROSpec);
-    self.send_message_ack(message, LlrpMessageType::AddROspecResponse).await?;
+    let message = LlrpMessage::new_add_rospec(message_id, &self.config.rospec);
+    let _ = self.send_message_ack(message, LlrpMessageType::AddROspecResponse).await?;
 
     Ok(())
   }
@@ -291,8 +350,8 @@ impl LlrpClient {
     
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_enable_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::EnableROSpecResponse).await?;
+    let message = LlrpMessage::new_enable_rospec(message_id, self.config.rospec.rospec_id);
+    let _ = self.send_message_ack(message, LlrpMessageType::EnableROSpecResponse).await?;
 
     Ok(())
   }
@@ -303,8 +362,8 @@ impl LlrpClient {
 
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_start_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StartROSpecResponse).await?;
+    let message = LlrpMessage::new_start_rospec(message_id, self.config.rospec.rospec_id);
+    let _ = self.send_message_ack(message, LlrpMessageType::StartROSpecResponse).await?;
 
     Ok(())
   }
@@ -315,8 +374,8 @@ impl LlrpClient {
 
     let message_id = self.next_message_id();
 
-    let message = LlrpMessage::new_stop_rospec(message_id, self.config.ROSpec.rospec_id);
-    self.send_message_ack(message, LlrpMessageType::StopROSpecResponse).await?;
+    let message = LlrpMessage::new_stop_rospec(message_id, self.config.rospec.rospec_id);
+    let _ = self.send_message_ack(message, LlrpMessageType::StopROSpecResponse).await?;
 
     Ok(())
   }
@@ -329,7 +388,7 @@ impl LlrpClient {
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_delete_rospec(message_id, rospec_id);
-    self.send_message_ack(message, LlrpMessageType::DeleteROSpecResponse).await?;
+    let _ = self.send_message_ack(message, LlrpMessageType::DeleteROSpecResponse).await?;
 
     Ok(())
   }
@@ -345,35 +404,44 @@ impl LlrpClient {
 
     let mut ro_report_rx = self.ro_report_tx.subscribe();
 
-    let _timeout = Duration::from_millis(self.config.response_timeout);
+    let timeout_duration = Duration::from_millis(self.config.response_timeout);
     let start_time = Instant::now();
 
     loop {
 
       let elapsed = start_time.elapsed();
-      if elapsed >= _timeout {
+      if elapsed >= timeout_duration {
         return Err(Box::new(std::io::Error::new(
           std::io::ErrorKind::TimedOut,
           "Timeout waiting for ROAccessReport",
         )));
       }
 
-      match ro_report_rx.recv().await {
+      let remaining_timeout = timeout_duration - elapsed;
 
-        Ok(response) => {
+      match timeout(remaining_timeout, ro_report_rx.recv()).await {
+
+        Ok(Ok(response)) => {
           response_callback(response).await;
           break;
         }
 
-        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-          eprintln!("Skipped {} messages due to buffer overflow", skipped);
+        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
+          warn!("Skipped {} messages due to buffer overflow", skipped);
           continue;
         }
 
-        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+        Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
           return Err(Box::new(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "ROAccessReport channel closed"
+          )));
+        }
+
+        Err(_) => {
+          return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Timeout waiting for ROAccessReport"
           )));
         }
       }
@@ -389,7 +457,7 @@ impl LlrpClient {
   ) {
 
     if expected_response_type == response_type {
-      println!("[ACK] {}", get_message_type_str(expected_response_type.value()));
+      info!("[ACK] {}", get_message_type_str(expected_response_type.value()));
     }
   }
 
@@ -451,6 +519,10 @@ impl LlrpClient {
 
         LlrpMessageType::ROAccessReport => {
           let _ = ro_report_tx.send(llrp_response);
+        }
+
+        LlrpMessageType::ReaderEventNotification => {
+          continue;
         }
 
         _ => {
