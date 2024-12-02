@@ -2,6 +2,7 @@ use std::os::raw::c_char;
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::sync::Mutex;
+use llrp::LlrpResponseData;
 use tokio::runtime::Runtime;
 use lazy_static::lazy_static;
 
@@ -11,12 +12,31 @@ mod llrp;
 
 use client::LlrpClient;
 
-type ROAccessReportCallback = extern "C" fn(report: *const c_char);
+type ReaderCapabilitiesCallback = extern "C" fn(capabilities: *const c_char);
+type ReaderConfigCallback       = extern "C" fn(config: *const c_char);
+type ROAccessReportCallback     = extern "C" fn(report: *const c_char);
 
 lazy_static! {
   static ref RUNTIME: Runtime = Runtime::new().unwrap();
-  static ref LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
-  static ref RO_ACCESS_REPORT_CALLBACK: Mutex<Option<ROAccessReportCallback>> = Mutex::new(None);
+  static ref LAST_ERROR                   : Mutex<Option<String>>                     = Mutex::new(None);
+  static ref READER_CAPABILITIES_CALLBACK : Mutex<Option<ReaderCapabilitiesCallback>> = Mutex::new(None);
+  static ref READER_CONFIG_CALLBACK       : Mutex<Option<ReaderConfigCallback>>       = Mutex::new(None);
+  static ref RO_ACCESS_REPORT_CALLBACK    : Mutex<Option<ROAccessReportCallback>>     = Mutex::new(None);
+}
+
+#[no_mangle]
+pub extern "C" fn set_reader_capabilities_callback(callback: ReaderCapabilitiesCallback) {
+  *READER_CAPABILITIES_CALLBACK.lock().unwrap() = Some(callback);
+}
+
+#[no_mangle]
+pub extern "C" fn set_reader_config_callback(callback: ReaderConfigCallback) {
+  *READER_CONFIG_CALLBACK.lock().unwrap() = Some(callback);
+}
+
+#[no_mangle]
+pub extern "C" fn set_ro_access_report_callback(callback: ROAccessReportCallback) {
+  *RO_ACCESS_REPORT_CALLBACK.lock().unwrap() = Some(callback);
 }
 
 pub struct LlrpClientWrapper(LlrpClient);
@@ -97,8 +117,31 @@ pub extern "C" fn send_get_reader_capabilities(client_ptr: *mut LlrpClientWrappe
     }
 
     let client = &mut *client_ptr;
+    let callback_lock = READER_CAPABILITIES_CALLBACK.lock().unwrap();
 
-    match RUNTIME.block_on(client.0.send_get_reader_capabilities()) {
+    if callback_lock.is_none() {
+      set_last_error("No ReaderCapabilities callback registered");
+      return -1;
+    }
+
+    let callback = callback_lock.unwrap();
+
+    match RUNTIME.block_on(client.0.send_get_reader_capabilities(move | response_data | async move {
+
+      let capabilities_str = match response_data {
+
+        LlrpResponseData::ReaderCapabilities(parameters) => {
+          format!("{:?}", parameters)
+        }
+
+        _ => "Unexpected GetReaderCapabilities response".to_string()
+
+      };
+
+      let c_capabilities = CString::new(capabilities_str).unwrap();
+      callback(c_capabilities.as_ptr());
+
+    })) {
       Ok(_) => 0,  
       Err(e) => {
         set_last_error(&e.to_string());
@@ -118,8 +161,30 @@ pub extern "C" fn send_get_reader_config(client_ptr: *mut LlrpClientWrapper) -> 
     }
 
     let client = &mut *client_ptr;
+    let callback_lock = READER_CONFIG_CALLBACK.lock().unwrap();
 
-    match RUNTIME.block_on(client.0.send_get_reader_config()) {
+    if callback_lock.is_none() {
+      set_last_error("No ReaderConfig callback registered");
+      return -1;
+    }
+
+    let callback = callback_lock.unwrap();
+
+    match RUNTIME.block_on(client.0.send_get_reader_config(move | response_data | async move {
+
+      let config_str = match response_data {
+
+        LlrpResponseData::ReaderConfig(parameters) => {
+          format!("{:?}", parameters)
+        }
+
+        _ => "Unexpected GetReaderConfig response".to_string()
+      };
+
+      let c_config = CString::new(config_str).unwrap();
+      callback(c_config.as_ptr());
+
+    })) {
       Ok(_) => 0,
       Err(e) => {
         set_last_error(&e.to_string());
@@ -256,12 +321,6 @@ pub extern "C" fn send_delete_rospec(client_ptr: *mut LlrpClientWrapper, rospec_
 }
 
 #[no_mangle]
-pub extern "C" fn set_ro_access_report_callback(callback: ROAccessReportCallback) {
-  *RO_ACCESS_REPORT_CALLBACK.lock().unwrap() = Some(callback);
-}
-
-#[no_mangle]
-
 pub extern "C" fn await_ro_access_report(client_ptr: *mut LlrpClientWrapper) -> i32 {
   unsafe {
 
@@ -271,24 +330,24 @@ pub extern "C" fn await_ro_access_report(client_ptr: *mut LlrpClientWrapper) -> 
     }
 
     let client = &mut *client_ptr;
-    let callback = RO_ACCESS_REPORT_CALLBACK.lock().unwrap();
+    let callback_lock = RO_ACCESS_REPORT_CALLBACK.lock().unwrap();
 
-    if callback.is_none() {
+    if callback_lock.is_none() {
       set_last_error("No ROAccessReport callback registered");
       return -1;
     }
 
-    let callback = callback.unwrap();
+    let callback = callback_lock.unwrap();
 
-    match RUNTIME.block_on(client.0.await_ro_access_report(move | response | async move {
+    match RUNTIME.block_on(client.0.await_ro_access_report(move | response_data | async move {
 
-      let report_str = match response.decode() {
-        Ok(tag_reports) => tag_reports
-          .iter()
-          .map(|tag| tag.to_string())
-          .collect::<Vec<_>>()
-          .join(", "),
-        Err(_) => "Error decoding report".to_string()
+      let report_str = match response_data {
+        
+        LlrpResponseData::TagReport(epc_data) => {
+          format!("{:?}", epc_data)
+        }
+
+        _ => "Unexpected ROAccessReport response".to_string()
       };
 
       let c_report = CString::new(report_str).unwrap();

@@ -552,6 +552,13 @@ pub struct LlrpResponse {
   pub payload      : Vec<u8>
 }
 
+#[derive(Debug)]
+pub enum LlrpResponseData {
+  TagReport(Vec<TagReportData>),
+  ReaderCapabilities(Vec<LlrpParameter>),
+  ReaderConfig(Vec<LlrpParameter>),
+}
+
 impl LlrpResponse {
   
   pub fn from_message(
@@ -566,15 +573,14 @@ impl LlrpResponse {
 
   pub fn decode(
     &self
-  ) -> io::Result<Vec<TagReportData>> {
+  ) -> io::Result<LlrpResponseData> {
+    let mut buf = BytesMut::from(&self.payload[..]);
 
-    let mut tag_reports = Vec::new();
-    
     match self.message_type {
-
+      
       LlrpMessageType::ROAccessReport => {
-        
-        let mut buf = BytesMut::from(&self.payload[..]);
+
+        let mut tag_reports = Vec::new();
         let parameters = parse_parameters(&mut buf)?;
 
         for parameter in parameters {
@@ -586,80 +592,31 @@ impl LlrpResponse {
             }
 
             _ => {
-              warn!("Unhandled parameter type: {:?}", self.message_type);
+              warn!("Unhandled parameter type in ROAccessReport: {:?}", parameter.param_type);
             }
           }
         }
+
+        Ok(LlrpResponseData::TagReport(tag_reports))
       }
 
-      LlrpMessageType::ErrorMessage => {
-        warn!("Error-message payload: {:?}", self.payload);
+      LlrpMessageType::GetReaderCapabilitiesResponse => {
+        let parameters = parse_parameters(&mut buf)?;
+        Ok(LlrpResponseData::ReaderCapabilities(parameters))
       }
+
+      LlrpMessageType::GetReaderConfigResponse => {
+        let parameters = parse_parameters(&mut buf)?;
+        Ok(LlrpResponseData::ReaderConfig(parameters))
+      }
+
       _ => {
-        warn!("Unhandled message type: {}", self.message_type.value());
+        Err(io::Error::new(
+          io::ErrorKind::InvalidData,
+          format!("Unsupported message type: {:?}", self.message_type)
+        ))
       }
     }
-
-    Ok(tag_reports)
-  }
-
-  pub fn decode_reader_capabilities(&self) -> Result<Vec<LlrpParameter>, Box<dyn std::error::Error>> {
-    let mut buf = BytesMut::from(&self.payload[..]);
-    let parameters = parse_parameters(&mut buf)?;
-
-    debug!("Decoding Reader Config Response:");
-    for param in &parameters {
-      match param.param_type {
-
-        LlrpParameterType::GeneralDeviceCapabilities => {
-          info!("General Device Capabilities: {:?}", param.param_value);
-        }
-
-        LlrpParameterType::AntennaConfiguration => {
-          info!("Antenna Configuration: {:?}", param.param_value);
-        }
-
-        LlrpParameterType::LlrpCapabilities => {
-          info!("LLRP Capabilities: {:?}", param.param_value);
-        }
-
-        _ => {
-          warn!("Unhandled parameter type: {:?}", param.param_type);
-        }
-      }
-    }
-
-    Ok(parameters)
-  }
-
-  // Not working, just copied logic from decode_reader_capabilities for compilation
-  pub fn decode_reader_config(&self) -> Result<Vec<LlrpParameter>, Box<dyn std::error::Error>> {
-    let mut buf = BytesMut::from(&self.payload[..]);
-    let parameters = parse_parameters(&mut buf)?;
-
-    debug!("Decoding Reader Config Response:");
-    for param in &parameters {
-      match param.param_type {
-
-        LlrpParameterType::GeneralDeviceCapabilities => {
-          info!("General Device Capabilities: {:?}", param.param_value);
-        }
-
-        LlrpParameterType::AntennaConfiguration => {
-          info!("Antenna Configuration: {:?}", param.param_value);
-        }
-
-        LlrpParameterType::LlrpCapabilities => {
-          info!("LLRP Capabilities: {:?}", param.param_value);
-        }
-
-        _ => {
-          warn!("Unhandled parameter type: {:?}", param.param_type);
-        }
-      }
-    }
-
-    Ok(parameters)
   }
 }
 

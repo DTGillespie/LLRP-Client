@@ -3,7 +3,8 @@ mod client;
 mod config;
 
 use std::env;
-use log::{info, debug, error};
+use llrp::LlrpResponseData;
+use log::{info, debug, warn, error};
 use tokio::{self};
 
 use client::LlrpClient;
@@ -14,14 +15,28 @@ async fn main() {
   let current_dir = env::current_dir().unwrap();
   let config_file = current_dir.join("config.json");
 
-  let get_reader_capabilities  = false;
+  let get_reader_capabilities  = true;
   let get_reader_config        = false;
 
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
       if get_reader_capabilities {
-        if let Err(e) = client.send_get_reader_capabilities().await {
+        if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
+          match response_data {
+            
+            LlrpResponseData::ReaderCapabilities(parameters) => {
+              for param in parameters {
+                info!("Received ReaderCapability Parameter: {:?}", param);
+              }
+            }
+
+            _ => {
+              warn!("Unexpected response data for GetReaderCapabilities");
+            }
+
+          }
+        }).await {
           error!("GetReaderCapabilities error: {}", e)
         }
       }
@@ -35,7 +50,21 @@ async fn main() {
       }
 
       if get_reader_config {
-        if let Err(e) = client.send_get_reader_config().await {
+        if let Err(e) = client.send_get_reader_config(| response_data | async move {
+          match response_data {
+
+            LlrpResponseData::ReaderConfig(parameters) => {
+              for param in parameters {
+                info!("Received ReaderConfig parameter: {:?}", param);
+              }
+            }
+
+            _ => {
+              warn!("Unexpected response data for GetReaderConfig");
+            }
+
+          }
+        }).await {
           error!("GetReaderConfig error: {}", e);
         }
       }
@@ -56,21 +85,19 @@ async fn main() {
         error!("StartROSpec error: {}", e);
       }
 
-      if let Err(e) = client.await_ro_access_report( | response | async move {
-        
-        match response.decode() {
-          
-          Ok(tag_reports) => {
+      if let Err(e) = client.await_ro_access_report( | response_data | async move {
+        match response_data {
+
+          LlrpResponseData::TagReport(tag_reports) => {
             for tag_report in tag_reports {
               debug!("[EPC] {}", tag_report);
             }
           }
 
-          Err(e) => {
-            error!("ROAccessReport decoding error: {}", e);
+          _ => {
+            warn!("Unexpected response data for ROAccessReport");
           }
         }
-
       }).await {
         error!("Error while attempting to receive ROAccessReport: {}", e)
       }

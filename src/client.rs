@@ -16,7 +16,7 @@ use log::{info, warn, error, LevelFilter};
 use std::collections::HashMap;
 
 use crate::config::{ Config, load_config };
-use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse};
+use crate::llrp::{get_message_type_str, LlrpMessage, LlrpMessageType, LlrpResponse, LlrpResponseData};
 
 static INIT_LOGGER: Once = Once::new();
 
@@ -256,68 +256,58 @@ impl LlrpClient {
     Ok(())
   }
 
-  pub async fn send_get_reader_capabilities(
+  pub async fn send_get_reader_capabilities<Fut, F>(
     &mut self,
-  ) -> Result<(), Box<dyn Error>> {
+    mut response_callback: F
+  ) -> Result<(), Box<dyn Error>> 
+  where
+    F   : FnMut(LlrpResponseData) -> Fut + Send + Sync,
+    Fut : Future<Output = ()> + Send 
+  {
 
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_capabilities(message_id);
-    let response = self.send_message(message, LlrpMessageType::GetReaderCapabilitiesResponse).await?;
-    
-    if response.message_type == LlrpMessageType::GetReaderCapabilitiesResponse {
-      response.decode_reader_capabilities()?;
+    let response = self
+      .send_message_ack(message, LlrpMessageType::GetReaderCapabilitiesResponse)
+      .await?;
 
-      if self.config.log_response_ack {
-        self.log_response_acknowledgment(
-          LlrpMessageType::GetReaderCapabilitiesResponse, 
-          response.message_type
-        );
+    match response.decode() {
+
+      Ok(response_data) => {
+        response_callback(response_data).await;
+        Ok(())
       }
 
-    } else {
-      return Err(Box::new(io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!(
-          "Expected GetReaderCapabilitiesResponse, received: {:?}",
-          response.message_type
-        )
-      )));
+      Err(e) => Err(Box::new(e))
     }
-
-    Ok(())
   }
 
-  pub async fn send_get_reader_config(
+  pub async fn send_get_reader_config<Fut, F>(
     &mut self,
-  ) -> Result<(), Box<dyn Error>> {
+    mut response_callback: F
+  ) -> Result<(), Box<dyn Error>> 
+  where
+    F   : FnMut(LlrpResponseData) -> Fut + Send + Sync,
+    Fut : Future<Output = ()> + Send 
+  {
 
     let message_id = self.next_message_id();
 
     let message = LlrpMessage::new_get_reader_config(message_id);
-    let response = self.send_message(message, LlrpMessageType::GetReaderConfigResponse).await?;
+    let response = self
+      .send_message_ack(message, LlrpMessageType::GetReaderConfigResponse)
+      .await?;
+    
+    match response.decode() {
 
-    if response.message_type == LlrpMessageType::GetReaderConfigResponse {
-      response.decode_reader_config()?;
-
-      if self.config.log_response_ack {
-        self.log_response_acknowledgment(
-          LlrpMessageType::GetReaderConfigResponse, 
-          response.message_type
-        );
+      Ok(response_data) => {
+        response_callback(response_data).await;
+        Ok(())
       }
 
-    } else {
-      return Err(Box::new(io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!(
-          "Expected GetReaderConfigResponse, received: {:?}",
-          response.message_type
-        )
-      )));
+      Err(e) => Err(Box::new(e)),
     }
-
-    Ok(())
   }
 
   pub async fn send_set_reader_config(
@@ -395,10 +385,10 @@ impl LlrpClient {
 
   pub async fn await_ro_access_report<Fut, F>(
     &mut self,
-    mut response_callback : F
+    mut response_callback: F
   ) -> Result<(), Box<dyn Error>> 
   where
-    F   : FnMut(LlrpResponse) -> Fut + Send + Sync,
+    F   : FnMut(LlrpResponseData) -> Fut + Send + Sync,
     Fut : Future<Output = ()> + Send 
   {
 
@@ -422,8 +412,17 @@ impl LlrpClient {
       match timeout(remaining_timeout, ro_report_rx.recv()).await {
 
         Ok(Ok(response)) => {
-          response_callback(response).await;
-          break;
+          match response.decode() {
+
+            Ok(response_data) => {
+              response_callback(response_data).await;
+              break;
+            }
+
+            Err(e) => {
+              return Err(Box::new(e));
+            }
+          }
         }
 
         Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
