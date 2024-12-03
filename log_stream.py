@@ -3,29 +3,29 @@ import os
 import threading
 
 def stream_log_file(file_path, polling_interval=1.0):
-    """
-    Streams the contents of a log file to the terminal in real-time.
 
-    :param file_path: Path to the log file to be streamed.
-    :param polling_interval: Time interval (in seconds) between file checks.
-    """
+    if not os.path.exists(file_path):
+        try:
+            with open(file_path, 'w') as file:
+                pass
+            print(f"Log File '{file_path}' Created.")
+        except Exception as e:
+            print(f"Error creating log file '{file_path}': {e}")
+            return
+
     try:
         with open(file_path, 'r') as file:
-            # Move the pointer to the end of the file
             file.seek(0, 2)
             
             print(f"Streaming Log File: {file_path}")
             print("-" * 50)
 
             while True:
-                # Read new lines from the file
                 line = file.readline()
                 if line:
-                    print(line, end='')  # Print without adding extra newlines
+                    print(line, end='')
                 else:
-                    time.sleep(polling_interval)  # Wait before checking again
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.")
+                    time.sleep(polling_interval)
     except PermissionError:
         print(f"Error: Insufficient permissions to read '{file_path}'.")
     except KeyboardInterrupt:
@@ -34,9 +34,7 @@ def stream_log_file(file_path, polling_interval=1.0):
         print(f"An unexpected error occurred: {e}")
 
 def clear_screen_listener():
-    """
-    Listens for the user to press the 'c' key and clears the terminal screen.
-    """
+
     print("Press 'c' to clear the screen or Ctrl+C to exit.")
     try:
         while True:
@@ -44,15 +42,13 @@ def clear_screen_listener():
             if user_input.lower() == 'c':
                 os.system('cls' if os.name == 'nt' else 'clear')
     except KeyboardInterrupt:
-        pass  # Gracefully handle Ctrl+C here if desired
+        pass
 
 if __name__ == "__main__":
-    # Specify the path to the log file
-    log_file_path = "system.log"  # Replace with the path to your log file
 
-    # Start the clear screen listener in a separate thread
+    log_file_path = "system.log"
+
     listener_thread = threading.Thread(target=clear_screen_listener, daemon=True)
     listener_thread.start()
 
-    # Start streaming the log file
     stream_log_file(log_file_path)
