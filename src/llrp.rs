@@ -585,8 +585,9 @@ impl LlrpResponse {
     let mut buf = BytesMut::from(&self.payload[..]);
 
     match self.message_type {
-      
+
       LlrpMessageType::GetReaderCapabilitiesResponse => {
+
         let parameters = parse_parameters(&mut buf)?;
         let mut parsed_params: Vec<LlrpParameterData> = Vec::new();
 
@@ -687,7 +688,11 @@ pub fn parse_parameters(
 
     // Check if TLV or TV encoded
     let first_byte = buf[0];
+    debug!("First byte: 0x{:02X}", first_byte);
+
     if (first_byte & 0x80) != 0 {
+
+      debug!("Parsing TV parameter");
 
       let param_type_value = buf.get_u8();
       let param_type_value = (param_type_value & 0x7F) as u16;
@@ -729,6 +734,8 @@ pub fn parse_parameters(
       parameters.push(parameter);
 
     } else {
+      
+      debug!("Parsing TLV parameter");
 
       if buf.remaining() < 4 {
         return Err(Error::new(
@@ -737,10 +744,27 @@ pub fn parse_parameters(
         ));
       }
 
+      let next_four_bytes = &buf[..4];
+      debug!("Next 4 bytes: {:?}", next_four_bytes);
+      debug!("Next 4 bytes (hex): {:02X?}", next_four_bytes);
+
       let param_type_value = buf.get_u16();
       let param_length = buf.get_u16();
 
-      if param_length < 4 || param_length as usize > buf.remaining() + 4 {
+      debug!("param_type_value: {}", param_type_value);
+      debug!("param_length: {}", param_length);
+      debug!("buf.remaining(): {:?}", buf.remaining());
+
+      if param_length < 4 || (param_length - 4) as usize > buf.remaining() {
+        
+        debug!(
+          "Invalid TLV parameter length:\n\tparam_length={}\n\tbuf.remaining()={}", 
+          param_length, 
+          buf.remaining()
+        );
+
+        debug!("Bytes at error point: {:02X?}", &buf[..]);
+        
         return Err(Error::new(
           ErrorKind::InvalidData,
           "Invalid TLV parameter length"
@@ -748,6 +772,8 @@ pub fn parse_parameters(
       }
 
       let param_value_length = param_length as usize - 4;
+      debug!("param_value_length: {}", param_value_length);
+
       let mut param_value = buf.split_to(param_value_length);
 
       let sub_params = if is_known_parameter_with_subparams(param_type_value) {
@@ -764,6 +790,7 @@ pub fn parse_parameters(
           sub_params
         };
 
+        debug!("Parsed parameter: {:?}", parameter.param_type);
         parameters.push(parameter);
       } else {
         warn!("Unknown TLV parameter type: {}", param_type_value);
@@ -1407,7 +1434,9 @@ fn is_known_parameter_with_subparams(param_type_value: u16) -> bool {
   match LlrpParameterType::from_value(param_type_value) {
     Some(LlrpParameterType::GeneralDeviceCapabilities) |
     Some(LlrpParameterType::LLRPCapabilities)          |
-    Some(LlrpParameterType::RegulatoryCapabilities) => true,
+    Some(LlrpParameterType::RegulatoryCapabilities)    |
+    Some(LlrpParameterType::UHFBandCapabilities)       | 
+    Some(LlrpParameterType::FrequencyInformation) => true,
     _ => false
   }
 }

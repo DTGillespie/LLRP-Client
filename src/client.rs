@@ -12,7 +12,7 @@ use env_logger::{self, Builder};
 use std::fs::OpenOptions;
 use chrono::Local;
 use std::io::Write;
-use log::{info, warn, error, LevelFilter};
+use log::{info, debug, warn, error, LevelFilter};
 use std::collections::HashMap;
 
 use crate::config::{ Config, load_config };
