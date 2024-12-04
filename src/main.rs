@@ -40,7 +40,7 @@ async fn main() {
           error!("GetReaderCapabilities error: {}", e)
         }
       }
-
+      /*
       if let Err(e) = client.send_delete_rospec(0).await {
         error!("DeleteROSpec error: {}", e);
       }
@@ -109,6 +109,7 @@ async fn main() {
       if let Err(e) = client.send_close_connection().await {
         error!("CloseConnection error: {}", e);
       }
+      */
     }
 
     Err(e) => {
