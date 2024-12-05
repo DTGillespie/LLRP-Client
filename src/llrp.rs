@@ -39,7 +39,6 @@ pub enum LlrpMessageType {
   ReaderEventNotification       = 63,
   EnableEventsAndReports        = 64,
   ErrorMessage                  = 100,
-  CustomMessage                 = 1023
 }
 
 impl LlrpMessageType {
@@ -128,6 +127,7 @@ pub enum LlrpParameterType {
   ConnAttemptEvent                  = 256,
   LLRPStatus                        = 287,
   C1G2LLRPCapabilities              = 327,
+  Custom                            = 1023,
 }
 
 impl LlrpParameterType {
@@ -162,9 +162,10 @@ pub fn get_parameter_type_str(
 
 #[derive(Debug)]
 pub enum LlrpParameterData {
-  GeneralDeviceCapabilities(GeneralDeviceCapabilities),
-  LLRPCapabilities(LLRPCapabilities),
-  RegulatoryCapabilities(RegulatoryCapabilities)
+  LLRPStatus                (LLRPStatus),
+  GeneralDeviceCapabilities (GeneralDeviceCapabilities),
+  LLRPCapabilities          (LLRPCapabilities),
+  RegulatoryCapabilities    (RegulatoryCapabilities)
 }
 
 /// Represents an LLRP-compliant message.
@@ -595,8 +596,9 @@ impl LlrpResponse {
           match param.param_type {
 
             LlrpParameterType::LLRPStatus => {
-              // Unhandled
-              warn!("LLRPStatus parameter is currently unhandled");
+              let llrp_status = LLRPStatus::decode(&param.param_value)?;
+              info!("LLRPStatus: {:?}", llrp_status);
+              parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
             }
 
             LlrpParameterType::GeneralDeviceCapabilities => {
@@ -678,11 +680,117 @@ pub struct LlrpParameter {
   pub sub_params   : Option<Vec<LlrpParameter>>
 }
 
+pub fn parse_parameters(buf: &[u8]) -> io::Result<Vec<LlrpParameter>> {
+
+  let mut parameters = Vec::new();
+  let mut index = 0;
+  let buf_len = buf.len();
+
+  while index < buf_len {
+
+    if buf_len - index < 1 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Insufficient data for parameter parsing",
+      ));
+    }
+
+    let first_byte = buf[index];
+    if (first_byte & 0x80) != 0 {
+
+      let param_type_value = first_byte & 0x7F;
+      index += 1;
+
+      let param_type = LlrpParameterType::from_value(param_type_value as u16);
+      let param_value_length = get_tv_param_length(param_type.unwrap_or(LlrpParameterType::Custom));
+      
+      if let Some(param_value_length) = param_value_length {
+
+        if buf_len - index < param_value_length {
+          return Err(Error::new(
+            ErrorKind::InvalidData,
+            "Buffer too short for TV parameter value",
+          ));
+        }
+
+        let param_value = buf[index..index + param_value_length].to_vec();
+        index += param_value_length;
+
+        let parameter = LlrpParameter {
+          param_type: param_type.unwrap_or(LlrpParameterType::Custom),
+          param_length: (1 + param_value_length) as u16,
+          param_value,
+          sub_params: None,
+        };
+
+        parameters.push(parameter);
+
+      } else {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          format!("Unknown TV parameter length for parameter type {:?}", param_type),
+        ));
+      }
+
+    } else {
+
+      if buf_len - index < 4 {
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Buffer too short for TLV parameter header",
+        ));
+      }
+
+      let param_type_value = ((buf[index] as u16) << 8) | buf[index + 1] as u16;
+      index += 2;
+
+      let param_length = ((buf[index] as u16) << 8) | buf[index + 1] as u16;
+      index += 2;
+
+      if param_length < 4 || (param_length - 4) as usize > (buf_len - index) {
+
+        debug!(
+          "Invalid TLV parameter length:\n\tparam_length={}\n\tbuf.remaining()={}", 
+          param_length, 
+          buf.remaining()
+        );
+
+        debug!("Bytes at error point: {:02X?}", &buf[..]);
+
+        return Err(Error::new(
+          ErrorKind::InvalidData,
+          "Invalid TLV parameter length",
+        ));
+      }
+
+      let param_value_length = (param_length - 4) as usize;
+      let param_value = buf[index..index + param_value_length].to_vec();
+      index += param_value_length;
+
+      let param_type = LlrpParameterType::from_value(param_type_value);
+      let parameter = LlrpParameter {
+        param_type: param_type.unwrap_or(LlrpParameterType::Custom),
+        param_length,
+        param_value,
+        sub_params: None,
+      };
+
+      parameters.push(parameter);
+    }
+  }
+
+  Ok(parameters)
+}
+
+
+/*
 pub fn parse_parameters(
   buf: &mut BytesMut
 ) -> io::Result<Vec<LlrpParameter>> {
 
   let mut parameters = Vec::new();
+
+  let initial_buf_length = buf.len();
 
   while buf.remaining() > 0 {
 
@@ -792,20 +900,68 @@ pub fn parse_parameters(
 
         debug!("Parsed parameter: {:?}", parameter.param_type);
         parameters.push(parameter);
+      
       } else {
         warn!("Unknown TLV parameter type: {}", param_type_value);
+
+        let parameter = LlrpParameter {
+          param_type: LlrpParameterType::Custom,
+          param_length,
+          param_value: param_value.to_vec(),
+          sub_params: None
+        };
+
+        debug!("Parsed parameter: {:?}", parameter.param_type);
+        parameters.push(parameter);
       }
     }
   }
 
+  if buf.remaining() > 0 {
+    warn!(
+      "Not all bytes consumed during sub-parameter parsing. Remaining bytes: {}",
+      buf.remaining()
+    );
+  }
+
   Ok(parameters)
+}
+*/
+
+#[derive(Debug)]
+pub struct LLRPStatus {
+  status_code : u16,
+  error_desc  : u16
+}
+
+impl LLRPStatus {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 4 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for LLRPStatus"
+      ));
+    }
+
+    let status_code = buf.get_u16();
+    let error_desc = buf.get_u16();
+
+    Ok(LLRPStatus { 
+      status_code, 
+      error_desc
+    })
+  }
 }
 
 #[derive(Debug)]
 pub struct GeneralDeviceCapabilities {
   pub max_number_of_antennas_supported  : u16,
-  pub can_set_antenna_properties        : bool,
-  pub has_utc_clock_capabilities        : bool,
+  pub general_device_capabilities       : u16,
   pub device_manufacturer_name          : u32,
   pub model_name                        : u32,
   pub reader_firmware_version           : String,
@@ -818,9 +974,10 @@ impl GeneralDeviceCapabilities {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+
     let mut buf = BytesMut::from(buf);
 
-    if buf.remaining() < 9 {
+    if buf.remaining() < 12 {
       return Err(Error::new(
         ErrorKind::InvalidData,
         "Buffer too short for GeneralDeviceCapabilities"
@@ -828,25 +985,32 @@ impl GeneralDeviceCapabilities {
     }
 
     let max_number_of_antennas_supported = buf.get_u16();
-
-    let capabilities = buf.get_u16();
-    let can_set_antenna_properties = (capabilities & 0x8000) != 0;
-    let has_utc_clock_capabilities = (capabilities & 0x4000) != 0;
-
+    let general_device_capabilities = buf.get_u16();
     let device_manufacturer_name = buf.get_u32();
     let model_name = buf.get_u32();
 
-    let mut firmware_bytes = Vec::new();
-    while buf.remaining() > 0 {
-      let byte = buf.get_u8();
-      if byte == 0 { break };
-      firmware_bytes.push(byte);
+    if buf.remaining() < 2 {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "Buffer too short for firmware length prefix",
+      ));
     }
 
-    let reader_firmware_version = String::from_utf8(firmware_bytes)
+    let firmware_length = buf.get_u16() as usize;
+
+    if buf.remaining() < firmware_length {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "Buffer too short for firmware version string",
+      ));
+    }
+
+    let firmware_bytes = buf.split_to(firmware_length);
+    let reader_firmware_version = String::from_utf8(firmware_bytes.to_vec())
       .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
 
-    let sub_parameters = parse_parameters(&mut buf)?;
+    let sub_param_slice = buf.chunk();
+    let sub_parameters = parse_parameters(sub_param_slice)?;
 
     let mut receive_sensitivity_table_entries = Vec::new();
     let mut gpio_capabilities = None;
@@ -878,8 +1042,7 @@ impl GeneralDeviceCapabilities {
 
     Ok(GeneralDeviceCapabilities {
       max_number_of_antennas_supported,
-      can_set_antenna_properties,
-      has_utc_clock_capabilities,
+      general_device_capabilities,
       device_manufacturer_name,
       model_name,
       reader_firmware_version,
@@ -929,6 +1092,7 @@ impl AntennaAirProtocol {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+    
     let mut buf = BytesMut::from(buf);
 
     if buf.remaining() < 3 {
@@ -969,7 +1133,8 @@ pub struct LLRPCapabilities {
   pub can_do_tag_inventory_state_aware_singulation  : bool,
   pub supports_event_and_report_holding             : bool,
   pub max_num_priority_levels_supported             : u8,
-  pub client_request_op_spec_timeout                : u32,
+  // /pub client_request_op_spec_timeout                : u32,
+  pub client_request_op_spec_timeout                : u16,
   pub max_num_ro_specs                              : u32,
   pub max_num_specs_per_ro_spec                     : u32,
   pub max_num_inventory_parameter_specs_per_ai_spec : u32,
@@ -981,6 +1146,7 @@ impl LLRPCapabilities {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+
     let mut buf = BytesMut::from(buf);
 
     if buf.remaining() < 24 {
@@ -998,7 +1164,7 @@ impl LLRPCapabilities {
     let supports_event_and_report_holding            = (capabilities & 0x08) != 0;
 
     let max_num_priority_levels_supported               = buf.get_u8();
-    let client_request_op_spec_timeout                 = buf.get_u32();
+    let client_request_op_spec_timeout                 = buf.get_u16();
     let max_num_ro_specs                               = buf.get_u32();
     let max_num_specs_per_ro_spec                      = buf.get_u32();
     let max_num_inventory_parameter_specs_per_ai_spec  = buf.get_u32();
@@ -1033,9 +1199,10 @@ impl RegulatoryCapabilities {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+
     let mut buf = BytesMut::from(buf);
 
-    if buf.remaining() < 3 {
+    if buf.remaining() < 4 {
       return Err(Error::new(
         ErrorKind::InvalidData,
         "Buffer too short for RegulatoryCapabilities"
@@ -1045,7 +1212,9 @@ impl RegulatoryCapabilities {
     let country_code = buf.get_u16();
     let communications_standard = buf.get_u8();
 
-    let sub_parameters = parse_parameters(&mut buf)?;
+    let param_slice = buf.chunk();
+    //let sub_parameters = parse_parameters(&mut buf)?;
+    let sub_parameters = parse_parameters(param_slice)?;
 
     let mut uhf_band_capabilities = None;
 
@@ -1231,6 +1400,7 @@ impl FrequencyInformation {
 #[derive(Debug)]
 pub struct FrequencyHopTable {
   pub hop_table_id: u16,
+  pub number_of_hops: u16,
   pub frequencies: Vec<u32>
 }
 
@@ -1248,6 +1418,7 @@ impl FrequencyHopTable {
     }
 
     let hop_table_id = buf.get_u16();
+    let number_of_hops = buf.get_u16();
     let num_frequencies = buf.get_u16();
 
     let frequencies_size = num_frequencies as usize * 4;
@@ -1267,6 +1438,7 @@ impl FrequencyHopTable {
 
     Ok(FrequencyHopTable {
       hop_table_id,
+      number_of_hops,
       frequencies
     })
   }
@@ -1436,7 +1608,9 @@ fn is_known_parameter_with_subparams(param_type_value: u16) -> bool {
     Some(LlrpParameterType::LLRPCapabilities)          |
     Some(LlrpParameterType::RegulatoryCapabilities)    |
     Some(LlrpParameterType::UHFBandCapabilities)       | 
-    Some(LlrpParameterType::FrequencyInformation) => true,
+    Some(LlrpParameterType::FrequencyInformation)      |
+    Some(LlrpParameterType::Custom) 
+      => true,
     _ => false
   }
 }

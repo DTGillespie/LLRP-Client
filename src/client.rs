@@ -97,13 +97,17 @@ impl LlrpClient {
 
     configure_logger(config.log_level.as_str());
 
-    let stream = TcpStream::connect(&config.host).await.map_err(|e| {
-      error!("Error connecting to LLRP server at {}: {}", config.host, e);
-      io::Error::new(
-        io::ErrorKind::ConnectionRefused,
-        "Unable to connect to LLRP server"
-      )
-    })?;
+    let connect_timeout = Duration::from_secs(5);
+    let stream = timeout(connect_timeout, TcpStream::connect(&config.host))
+      .await
+      .map_err(|_| {
+        error!("Connection attempt timed out after {} seconds", connect_timeout.as_secs());
+        io::Error::new(
+          io::ErrorKind::TimedOut,
+          "Timeout while connecting to LLRP server"
+        )
+      }
+    )??;
 
     info!("Client Successfully Connected to LLRP server: {}", config.host);
     

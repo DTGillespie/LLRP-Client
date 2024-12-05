@@ -26,6 +26,7 @@ async fn main() {
           
           info!("Debug after send_get_reader_capabilities() in main.rs");
           
+          /*
           match response_data {
             
             LlrpResponseData::ReaderCapabilities(parameters) => {
@@ -39,6 +40,7 @@ async fn main() {
             }
 
           }
+          */
         }).await {
           error!("GetReaderCapabilities error: {}", e)
         }
@@ -116,7 +118,13 @@ async fn main() {
     }
 
     Err(e) => {
-      error!("Failed to connect to LLRP server: {}", e)
+      error!("Failed to connect to LLRP server: {}", e);
+      std::process::exit(1);
+    }
+
+    _ => {
+      error!("Failed to connect to LLRP server");
+      std::process::exit(1);
     }
   }
 }
