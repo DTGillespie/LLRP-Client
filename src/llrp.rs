@@ -5,7 +5,7 @@ use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
 use log::{info, debug, warn, error};
 
-use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, RegulatoryCapabilities, TagReportData}};
+use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, AntennaConfiguration, AntennaProperties, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, RegulatoryCapabilities, TagReportData}};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
@@ -80,7 +80,7 @@ pub enum LlrpParameterType {
   MaximumReceiveSensitivity         = 363,
   ReceiveSensitivityTableEntry      = 139,
   PerAntennaAirProtocol             = 140,
-  GPIPCapabilities                  = 141,
+  GPIOCapabilities                  = 141,
   LLRPCapabilities                  = 142,
   RegulatoryCapabilities            = 143,
   UHFBandCapabilities               = 144,
@@ -120,15 +120,98 @@ pub enum LlrpParameterType {
   EventsAndReports                  = 226,
   ROReportSpec                      = 237,
   TagReportContentSelector          = 238,
+  AccessReportSpec                  = 239,
   TagReportData                     = 240,
   EPCData                           = 241,
   EPC96                             = 13,
+  ROSpecID                          = 9,
+  SpecIndex                         = 14,
+  InventoryParameterSpecID          = 10,
+  AntennaID                         = 1,
+  PeakRSSI                          = 6,
+  ChannelIndex                      = 7,
+  FirstSeenTimestampUTC             = 2,
+  FirstSeenTimestampUptime          = 3,
+  LastSeenTimestampUTC              = 4,
+  LastSeenTimestampUptime           = 5,
+  TagSeenCount                      = 8,
+  ClientRequestOpSpecResult         = 15,
+  AccessSpecID                      = 16,
+  RFSurveyReportData                = 242,
+  FrequencyRSSILevelEntry           = 243,
+  ReaderEventNotificationSpec       = 244,
+  EventNotificationState            = 245,
   ReaderEventNotificationData       = 246,
-  ConnAttemptEvent                  = 256,
+  HoppingEvent                      = 247,
+  GPIEvent                          = 248,
+  ROSpecEvent                       = 249,
+  ReportBufferLevelWarningEvent     = 250,
+  ReportBufferOverflowErrorEvent    = 251,
+  ReaderExceptionEvent              = 252,
+  OpSpecID                          = 17,
+  RFSurveyEvent                     = 253,
+  AISpecEvent                       = 254,
+  AntennaEvent                      = 255,
+  ConnectionAttemptEvent            = 256,
+  ConnectionCloseEvent              = 257,
+  SpecLoopEvent                     = 356,
   LLRPStatus                        = 287,
+  FieldError                        = 288,
+  ParameterError                    = 289,
+  CryptoResponse                    = 290,
   C1G2LLRPCapabilities              = 327,
   C1G2UHFRFModeTable                = 328,
   C1G2UHFRFModeTableEntry           = 329,
+  C1G2InventoryCommand              = 330,
+  C1G2Filter                        = 331,
+  C1G2TagInventoryMask              = 332,
+  C1G2TagInventoryStateAwareFilterAction = 333,
+  C1G2TagInventoryStateUnawareFilterAction = 334,
+  C1G2RFControl                     = 335,
+  C1G2SingulationControl            = 336,
+  C1G2TagInventoryStateAwareSingulationAction = 337,
+  C1G2TagSpec                       = 338,
+  C1G2TargetTag                     = 339,
+  C1G2Read                          = 341,
+  C1G2Write                         = 342,
+  C1G2Kill                          = 343,
+  C1G2Lock                          = 344,
+  C1G2LockPayload                   = 345,
+  C1G2BlockErase                    = 346,
+  C1G2BlockWrite                    = 347,
+  C1G2BlockPermalock                = 358,
+  C1G2GetBlockPermalockStatus       = 359,
+  C1G2EPCMemorySelector             = 348,
+  C1G2PC                            = 12,
+  C1G2XPCW1                         = 19,
+  C1G2XPCW2                         = 20,
+  C1G2CRC                           = 11,
+  C1G2SingulationDetails            = 18,
+  C1G2ReadOpSpecResult              = 349,
+  C1G2WriteOpSpecResult             = 350,
+  C1G2KillOpSpecResult              = 351,
+  Reserved                          = 360,
+  C1G2LockOpSpecResult              = 352,
+  C1G2BlockEraseOpSpecResult        = 353,
+  C1G2Challenge                     = 366,
+  C1G2BlockWriteOpSpecResult        = 354,
+  C1G2BlockPermalockOpSpecResult    = 361,
+  C1G2GetBlockPermalockStatusOpSpecResult = 362,
+  C1G2Untraceable                   = 380,
+  C1G2UntraceableOpSpecResult       = 364,
+  C1G2Authenticate                  = 367,
+  C1G2AuthComm                      = 368,
+  C1G2SecureComm                    = 369,
+  C1G2ReadBuffer                    = 370,
+  C1G2KeyUpdate                     = 372,
+  C1G2TagPrivilege                  = 373,
+  C1G2AuthenticateOpSpecResult      = 374,
+  C1G2AuthCommOpSpecResult          = 375,
+  C1G2SecureCommOpSpecResult        = 376,
+  C1G2ReadBufferOpSpecResult        = 377,
+  C1G2KeyUpdateOpSpecResult         = 378,
+  C1G2TagPrivilegeOpSpecResult      = 379,
+  ExtendOnTime                      = 381,
   Custom                            = 1023,
 }
 
@@ -540,13 +623,6 @@ pub struct LlrpResponse {
   pub payload      : Vec<u8>
 }
 
-#[derive(Debug)]
-pub enum LlrpResponseData {
-  TagReport(Vec<TagReportData>),
-  ReaderCapabilities(Vec<LlrpParameterData>),
-  ReaderConfig(Vec<LlrpParameterData>),
-}
-
 impl LlrpResponse {
   
   pub fn from_message(
@@ -576,31 +652,31 @@ impl LlrpResponse {
 
             LlrpParameterType::LLRPStatus => {
               let llrp_status = LLRPStatus::decode(&param.param_value)?;
-              info!("GetReaderCapabilitiesResponse->LLRPStatus: {:?}", llrp_status);
+              info!("[VAL] GetReaderCapabilitiesResponse->LLRPStatus: {:?}", llrp_status);
               parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
             }
 
             LlrpParameterType::GeneralDeviceCapabilities => {
               let gdc = GeneralDeviceCapabilities::decode(&param.param_value)?;
-              info!("GetReaderCapabilitiesResponse->GeneralDeviceCapabilities: {:?}", gdc);
+              info!("[VAL] GetReaderCapabilitiesResponse->GeneralDeviceCapabilities: {:?}", gdc);
               parsed_params.push(LlrpParameterData::GeneralDeviceCapabilities(gdc));
             }
 
             LlrpParameterType::LLRPCapabilities => {
               let llrp_caps = LLRPCapabilities::decode(&param.param_value)?;
-              info!("GetReaderCapabilitiesResponse->LLRPCapabilities: {:?}", llrp_caps);
+              info!("[VAL] GetReaderCapabilitiesResponse->LLRPCapabilities: {:?}", llrp_caps);
               parsed_params.push(LlrpParameterData::LLRPCapabilities(llrp_caps));
             }
 
             LlrpParameterType::RegulatoryCapabilities => {
               let reg_caps = RegulatoryCapabilities::decode(&param.param_value)?;
-              info!("GetReaderCapabilitiesResponse->RegulatoryCapabilities: {:?}", reg_caps);
+              info!("[VAL] GetReaderCapabilitiesResponse->RegulatoryCapabilities: {:?}", reg_caps);
               parsed_params.push(LlrpParameterData::RegulatoryCapabilities(reg_caps));
             }
 
             LlrpParameterType::C1G2LLRPCapabilities=> {
               let c1g2_llrp_caps = C1G2LLRPCapabilities::decode(&param.param_value)?;
-              info!("GetReaderCapabilitiesResponse->C1G2LLRPCapabilities: {:?}", c1g2_llrp_caps);
+              info!("[VAL] GetReaderCapabilitiesResponse->C1G2LLRPCapabilities: {:?}", c1g2_llrp_caps);
               parsed_params.push(LlrpParameterData::C1G2LLRPCapabilities(c1g2_llrp_caps));
             }
 
@@ -623,14 +699,26 @@ impl LlrpResponse {
 
             LlrpParameterType::LLRPStatus => {
               let llrp_status = LLRPStatus::decode(&param.param_value)?;
-              info!("GetReaderConfigResponse->LLRPStatus: {:?}", llrp_status);
+              info!("[VAL] GetReaderConfigResponse->LLRPStatus: {:?}", llrp_status);
               parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
             }
 
             LlrpParameterType::Identification => {
               let identification = Identification::decode(&param.param_value)?;
-              info!("GetReaderConfigResponse->Identification: {:?}", identification);
-              parsed_params.push(LlrpParameterData::Identification(identification))
+              info!("[VAL] GetReaderConfigResponse->Identification: {:?}", identification);
+              parsed_params.push(LlrpParameterData::Identification(identification));
+            }
+
+            LlrpParameterType::AntennaProperties => {
+              let antenna_props = AntennaProperties::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->AntennaProperties: {:?}", antenna_props);
+              parsed_params.push(LlrpParameterData::AntennaProperties(antenna_props));
+            }
+
+            LlrpParameterType::AntennaConfiguration => {
+              let antenna_config = AntennaConfiguration::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->AntennaConfiguration: {:?}", antenna_config);
+              parsed_params.push(LlrpParameterData::AntennaConfiguration(antenna_config));
             }
 
             _ => {
@@ -672,6 +760,13 @@ impl LlrpResponse {
       }
     }
   }
+}
+
+#[derive(Debug)]
+pub enum LlrpResponseData {
+  TagReport(Vec<TagReportData>),
+  ReaderCapabilities(Vec<LlrpParameterData>),
+  ReaderConfig(Vec<LlrpParameterData>),
 }
 
 #[derive(Debug)]

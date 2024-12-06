@@ -11,7 +11,9 @@ pub enum LlrpParameterData {
   LLRPCapabilities          (LLRPCapabilities),
   RegulatoryCapabilities    (RegulatoryCapabilities),
   C1G2LLRPCapabilities      (C1G2LLRPCapabilities),
-  Identification            (Identification)
+  Identification            (Identification),
+  AntennaProperties         (AntennaProperties),
+  AntennaConfiguration      (AntennaConfiguration),
 }
 
 #[derive(Debug)]
@@ -229,7 +231,7 @@ impl GeneralDeviceCapabilities {
           receive_sensitivity_table_entries.push(entry);
         }
 
-        LlrpParameterType::GPIPCapabilities => {
+        LlrpParameterType::GPIOCapabilities => {
           let gpio_caps = GPIOCapabilities::decode(&param.param_value)?;
           gpio_capabilities = Some(gpio_caps);
         }
@@ -845,10 +847,8 @@ impl Identification {
       ));
     }
 
-    let length = buf.len();
-    debug!("Length: {:?}", length);
-
-    let id_type = buf[0];
+    let length      = buf.len();
+    let id_type        = buf[0];
     let reader_id = buf[1..].to_vec();
 
     match id_type {
@@ -888,10 +888,278 @@ impl Identification {
         "Identification parameter: Expected length ({}) does not match decoded length ({})",
         length, decoded_length
     )}
-    
+
     Ok(Identification {
       id_type,
       reader_id
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct AntennaProperties {
+  pub antenna_connected : bool,
+  pub antenna_id        : u16,
+  pub antenna_gain      : u16
+}
+
+impl AntennaProperties {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+    
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 5 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for AntennaProperties"
+      ));
+    }
+
+    let flags = buf.get_u8();
+    let antenna_connected = (flags & 0x80) != 0;
+
+    let antenna_id = buf.get_u16();
+    let antenna_gain = buf.get_u16();
+
+    Ok(AntennaProperties {
+      antenna_connected,
+      antenna_id,
+      antenna_gain
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct AntennaConfiguration {
+  pub antenna_id              : u16,
+  pub rf_receiver             : Option<RFReceiver>,
+  pub rf_transmitter          : Option<RFTransmitter>,
+  pub c1g2_inventory_commands : Vec<C1G2InventoryCommand>
+}
+
+impl AntennaConfiguration {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 2 {
+      return Err(Error::new(
+        ErrorKind::InvalidData, 
+        "Buffer too short for AntennaConfiguration"
+      ));
+    }
+
+    let antenna_id = buf.get_u16();
+    let sub_parameters = parse_parameters(buf.chunk())?;
+
+    let mut rf_receiver = None;
+    let mut rf_transmitter = None;
+    let mut c1g2_inventory_commands = Vec::new();
+
+    for param in sub_parameters {
+      match param.param_type {
+
+        LlrpParameterType::RFReceiver => {
+          rf_receiver = Some(RFReceiver::decode(&param.param_value)?);
+        }
+
+        LlrpParameterType::RFTransmitter => {
+          rf_transmitter = Some(RFTransmitter::decode(&param.param_value)?);
+        }
+
+        LlrpParameterType::C1G2InventoryCommand => {
+          let inventory_command = C1G2InventoryCommand::decode(&param.param_value)?;
+          c1g2_inventory_commands.push(inventory_command);
+        }
+
+        _ => {
+          warn!("Unhandled sub-parameter type in AntennaConfiguration: {:?}", param.param_type);
+        }
+      }
+    }
+
+    Ok(AntennaConfiguration {
+      antenna_id,
+      rf_receiver,
+      rf_transmitter,
+      c1g2_inventory_commands
+    })
+  }
+}
+#[derive(Debug)]
+pub struct RFReceiver {
+  pub receiver_sensitivity: u16
+}
+
+impl RFReceiver {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+    
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 2 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for RFReceiver"
+      ));
+    }
+
+    let receiver_sensitivity = buf.get_u16();
+
+    Ok(RFReceiver { receiver_sensitivity })
+  }
+}
+
+#[derive(Debug)]
+pub struct RFTransmitter {
+  pub hop_table_id         : u16,
+  pub channel_index        : u16,
+  pub transmit_power_value : u16
+}
+
+impl RFTransmitter {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+    
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 6 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for RFTransmitter"
+      ));
+    }
+
+    let hop_table_id         = buf.get_u16();
+    let channel_index        = buf.get_u16();
+    let transmit_power_value = buf.get_u16();
+
+    Ok(RFTransmitter {
+      hop_table_id,
+      channel_index,
+      transmit_power_value
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2InventoryCommand {
+  pub tag_inventory_state_aware : bool,
+  pub c1g2_rf_control           : Option<C1G2RFControl>,
+  pub c1g2_singulation_control  : Option<C1G2SingulationControl>
+}
+
+impl C1G2InventoryCommand {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+    
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 1 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for C1G2InventoryCommand"
+      ));
+    }
+
+    let flags = buf.get_u8();
+    let tag_inventory_state_aware = (flags & 0x80) != 0;
+
+    let sub_parameters = parse_parameters(buf.chunk())?;
+    let mut c1g2_rf_control = None;
+    let mut c1g2_singulation_control = None;
+
+    for param in sub_parameters {
+      match param.param_type {
+
+        LlrpParameterType::C1G2RFControl => {
+          c1g2_rf_control = Some(C1G2RFControl::decode(&param.param_value)?);
+        }
+
+        LlrpParameterType::C1G2SingulationControl => {
+          c1g2_singulation_control = Some(C1G2SingulationControl::decode(&param.param_value)?);
+        }
+
+        _ => {
+          warn!("Unhandled sub-parameter type in C1G2InventoryCommand: {:?}", param.param_type);
+        }
+      }
+    }
+
+      Ok(C1G2InventoryCommand {
+        tag_inventory_state_aware,
+        c1g2_rf_control,
+        c1g2_singulation_control
+      })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2RFControl {
+  pub mode_index : u16,
+  pub tari       : u16
+}
+
+impl C1G2RFControl {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+    
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 4 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for C1G2RFControl"
+      ));
+    }
+
+    let mode_index = buf.get_u16();
+    let tari = buf.get_u16();
+
+    Ok(C1G2RFControl {
+      mode_index,
+      tari
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2SingulationControl {
+  pub session          : u8,
+  pub tag_population   : u16,
+  pub tag_transit_time : u32
+}
+
+impl C1G2SingulationControl {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 7 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for C1G2SingulationControl"
+      ));
+    }
+
+    let session = buf.get_u8();
+    let tag_population = buf.get_u16();
+    let tag_transit_time = buf.get_u32();
+
+    Ok(C1G2SingulationControl {
+      session,
+      tag_population,
+      tag_transit_time
     })
   }
 }

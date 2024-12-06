@@ -16,13 +16,12 @@ async fn main() {
   let current_dir = env::current_dir().unwrap();
   let config_file = current_dir.join("config.json");
 
-  let get_reader_capabilities  = false;
+  let get_reader_capabilities  = true;
   let get_reader_config        = true;
 
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
-      /*
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
           
@@ -33,6 +32,7 @@ async fn main() {
         }
       }
 
+      /*
       if let Err(e) = client.send_delete_rospec(0).await {
         error!("DeleteROSpec error: {}", e);
       }
