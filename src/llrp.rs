@@ -5,7 +5,7 @@ use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
 use log::{info, debug, warn, error};
 
-use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, AntennaConfiguration, AntennaProperties, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, ReaderEventNotificationSpec, RegulatoryCapabilities, TagReportData}};
+use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, AntennaConfiguration, AntennaProperties, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, ROReportSpec, ReaderEventNotificationSpec, RegulatoryCapabilities, TagReportData}};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
@@ -725,6 +725,12 @@ impl LlrpResponse {
               let var = ReaderEventNotificationSpec::decode(&param.param_value)?;
               info!("[VAL] GetReaderConfigResponse->ReaderEventNotificationSpec: {:?}", var);
               parsed_params.push(LlrpParameterData::ReaderEventNotificationSpec(var));
+            }
+
+            LlrpParameterType::ROReportSpec => {
+              let var = ROReportSpec::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->ROReportSpec: {:?}", var);
+              parsed_params.push(LlrpParameterData::ROReportSpec(var));
             }
 
             _ => {

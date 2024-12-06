@@ -14,7 +14,8 @@ pub enum LlrpParameterData {
   Identification              (Identification),
   AntennaProperties           (AntennaProperties),
   AntennaConfiguration        (AntennaConfiguration),
-  ReaderEventNotificationSpec (ReaderEventNotificationSpec)
+  ReaderEventNotificationSpec (ReaderEventNotificationSpec),
+  ROReportSpec                (ROReportSpec),
 }
 
 #[derive(Debug)]
@@ -1227,6 +1228,117 @@ impl EventNotificationState {
     Ok(EventNotificationState {
       event_type,
       notification_state
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct ROReportSpec {
+  pub ro_report_trigger: u8,
+  pub n: u16,
+  pub tag_report_content_selector: Option<TagReportContentSelector>
+}
+
+impl ROReportSpec {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 3 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for ROReportSpec"
+      ));
+    }
+
+    let ro_report_trigger = buf.get_u8();
+    let n = buf.get_u16();
+
+    // Decode sub-parameters
+    let sub_parameters = parse_parameters(buf.chunk())?;
+    let mut tag_report_content_selector = None;
+
+    for param in sub_parameters {
+      match param.param_type {
+
+        LlrpParameterType::TagReportContentSelector => {
+          tag_report_content_selector = Some(TagReportContentSelector::decode(&param.param_value)?);
+        }
+
+        LlrpParameterType::Custom => {
+          // Do nothing
+        }
+
+        _ => {
+          warn!(
+            "Unhandled sub-parameter type in ROReportSpec: {:?}",
+            param.param_type
+          );
+        }
+      }
+    }
+
+    Ok(ROReportSpec {
+      ro_report_trigger,
+      n,
+      tag_report_content_selector,
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct TagReportContentSelector {
+  pub enable_rospec_id: bool,
+  pub enable_spec_index: bool,
+  pub enable_inventory_spec_id: bool,
+  pub enable_antenna_id: bool,
+  pub enable_channel_index: bool,
+  pub enable_peak_rssi: bool,
+  pub enable_first_seen_timestamp: bool,
+  pub enable_last_seen_timestamp: bool,
+  pub enable_tag_seen_count: bool,
+  pub enable_access_spec_id: bool,
+}
+
+impl TagReportContentSelector {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 1 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for TagReportContentSelector"
+      ));
+    }
+
+    let flags = buf.get_u16();
+    let enable_rospec_id            = (flags & 0x8000) != 0;
+    let enable_spec_index           = (flags & 0x4000) != 0;
+    let enable_inventory_spec_id    = (flags & 0x2000) != 0;
+    let enable_antenna_id           = (flags & 0x1000) != 0;
+    let enable_channel_index        = (flags & 0x0800) != 0;
+    let enable_peak_rssi            = (flags & 0x0400) != 0;
+    let enable_first_seen_timestamp = (flags & 0x0200) != 0;
+    let enable_last_seen_timestamp  = (flags & 0x0100) != 0;
+    let enable_tag_seen_count       = (flags & 0x0080) != 0;
+    let enable_access_spec_id       = (flags & 0x0040) != 0;
+
+    Ok(TagReportContentSelector {
+      enable_rospec_id,
+      enable_spec_index,
+      enable_inventory_spec_id,
+      enable_antenna_id,
+      enable_channel_index,
+      enable_peak_rssi,
+      enable_first_seen_timestamp,
+      enable_last_seen_timestamp,
+      enable_tag_seen_count,
+      enable_access_spec_id
     })
   }
 }
