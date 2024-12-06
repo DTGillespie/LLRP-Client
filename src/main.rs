@@ -24,7 +24,7 @@ async fn main() {
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
           
-          info!("Debug after send_get_reader_capabilities() in main.rs");
+          info!("Debug response_callback()");
           
           /*
           match response_data {

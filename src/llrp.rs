@@ -127,6 +127,8 @@ pub enum LlrpParameterType {
   ConnAttemptEvent                  = 256,
   LLRPStatus                        = 287,
   C1G2LLRPCapabilities              = 327,
+  C1G2UHFRFModeTable                = 328,
+  C1G2UHFRFModeTableEntry           = 329,
   Custom                            = 1023,
 }
 
@@ -165,7 +167,8 @@ pub enum LlrpParameterData {
   LLRPStatus                (LLRPStatus),
   GeneralDeviceCapabilities (GeneralDeviceCapabilities),
   LLRPCapabilities          (LLRPCapabilities),
-  RegulatoryCapabilities    (RegulatoryCapabilities)
+  RegulatoryCapabilities    (RegulatoryCapabilities),
+  C1G2LLRPCapabilities      (C1G2LLRPCapabilities),
 }
 
 /// Represents an LLRP-compliant message.
@@ -620,8 +623,9 @@ impl LlrpResponse {
             }
 
             LlrpParameterType::C1G2LLRPCapabilities=> {
-              // Unhandled
-              warn!("C1G2LLRPCapabilities parameter is currently unhandled");
+              let c1g2_llrp_caps = C1G2LLRPCapabilities::decode(&param.param_value)?;
+              info!("C1G2LLRPCapabilities: {:?}", c1g2_llrp_caps);
+              parsed_params.push(LlrpParameterData::C1G2LLRPCapabilities(c1g2_llrp_caps));
             }
 
             _ => {
@@ -1133,7 +1137,6 @@ pub struct LLRPCapabilities {
   pub can_do_tag_inventory_state_aware_singulation  : bool,
   pub supports_event_and_report_holding             : bool,
   pub max_num_priority_levels_supported             : u8,
-  // /pub client_request_op_spec_timeout                : u32,
   pub client_request_op_spec_timeout                : u16,
   pub max_num_ro_specs                              : u32,
   pub max_num_specs_per_ro_spec                     : u32,
@@ -1191,7 +1194,7 @@ impl LLRPCapabilities {
 #[derive(Debug)]
 pub struct RegulatoryCapabilities {
   pub country_code            : u16,
-  pub communications_standard : u8,
+  pub communications_standard : u16,
   pub uhf_band_capabilities   : Option<UHFBandCapabilities>
 }
 
@@ -1210,14 +1213,13 @@ impl RegulatoryCapabilities {
     }
 
     let country_code = buf.get_u16();
-    let communications_standard = buf.get_u8();
+    let communications_standard = buf.get_u16();
 
     let param_slice = buf.chunk();
-    //let sub_parameters = parse_parameters(&mut buf)?;
     let sub_parameters = parse_parameters(param_slice)?;
 
     let mut uhf_band_capabilities = None;
-
+ 
     for param in sub_parameters {
       match param.param_type {
         
@@ -1243,8 +1245,9 @@ impl RegulatoryCapabilities {
 
 #[derive(Debug)]
 pub struct UHFBandCapabilities {
-  pub transmit_power_levels: Vec<TransmitPowerLevelTableEntry>,
-  pub frequency_information: Option<FrequencyInformation>
+  pub transmit_power_levels  : Vec<TransmitPowerLevelTableEntry>,
+  pub frequency_information  : Option<FrequencyInformation>,
+  pub c1g2_uhf_rf_mode_table : Option<C1G2UHFRFModeTable>
 }
 
 impl UHFBandCapabilities {
@@ -1256,6 +1259,7 @@ impl UHFBandCapabilities {
 
     let mut transmit_power_levels = Vec::new();
     let mut frequency_information = None;
+    let mut c1g2_uhf_rf_mode_table = None;
 
     for param in sub_parameters {
       match param.param_type {
@@ -1270,6 +1274,11 @@ impl UHFBandCapabilities {
           frequency_information = Some(freq_info)
         }
 
+        LlrpParameterType::C1G2UHFRFModeTable => {
+          let c1g2_table = C1G2UHFRFModeTable::decode(&param.param_value)?;
+          c1g2_uhf_rf_mode_table = Some(c1g2_table);
+        }
+
         _ => {
           warn!("Unhandled sub-parameter type in UHFBandCapabilities: {:?}", param.param_type);
         }
@@ -1278,7 +1287,8 @@ impl UHFBandCapabilities {
 
     Ok(UHFBandCapabilities {
       transmit_power_levels,
-      frequency_information
+      frequency_information,
+      c1g2_uhf_rf_mode_table
     })
   }
 }
@@ -1316,7 +1326,6 @@ impl TransmitPowerLevelTableEntry {
 pub struct ReceiveSensitivityTableEntry {
   pub index: u16,
   pub receive_sensitivity_value: i16
-  //pub receive_sensitivity_value: u8
 }
 
 impl ReceiveSensitivityTableEntry {
@@ -1354,6 +1363,7 @@ impl FrequencyInformation {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+
     let mut buf = BytesMut::from(buf);
 
     if buf.remaining() < 1 {
@@ -1479,6 +1489,141 @@ impl FixedFrequencyTable {
     }
 
     Ok(FixedFrequencyTable { frequencies })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2UHFRFModeTable {
+  pub entries: Vec<C1G2UHFRFModeTableEntry>
+}
+
+impl C1G2UHFRFModeTable {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+    let sub_parameters = parse_parameters(&buf)?;
+
+    let mut entries = Vec::new();
+
+    for param in sub_parameters {
+      if param.param_type == LlrpParameterType::C1G2UHFRFModeTableEntry {
+        let entry = C1G2UHFRFModeTableEntry::decode(&param.param_value)?;
+        entries.push(entry);
+      } else {
+        warn!("Unexpected parameter type in C1G2UHFRFModeTable: {:?}", param.param_type);
+      }
+    }
+
+    Ok(C1G2UHFRFModeTable { entries })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2UHFRFModeTableEntry {
+  pub mode_identifier: u32,
+  pub dr: bool,
+  pub epc_hag_t_and_c_conformance: bool,
+  pub m: u8,
+  pub forward_link_modulation: u8,
+  pub spectral_mask_indicator: u8,
+  pub bdr: u32,
+  pub pie: u32,
+  pub min_tari: u32,
+  pub max_tari: u32,
+  pub tari_step: u32  
+}
+
+impl C1G2UHFRFModeTableEntry {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 2 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for C1G2UHFRFModeTableEntry header"
+      ));
+    }
+
+    let mode_identifier = buf.get_u32();
+    
+    let flags = buf.get_u8();
+    let dr = (flags & 0x80) != 0;
+    let epc_hag_t_and_c_conformance = (flags & 0x40) != 0;
+
+    let m = buf.get_u8();
+    let forward_link_modulation = buf.get_u8();
+    let spectral_mask_indicator = buf.get_u8();
+    let bdr = buf.get_u32();
+    let pie = buf.get_u32();
+    let min_tari = buf.get_u32();
+    let max_tari = buf.get_u32();
+    let tari_step = 0;
+
+    Ok(C1G2UHFRFModeTableEntry {
+      mode_identifier,
+      dr,
+      epc_hag_t_and_c_conformance,
+      m,
+      forward_link_modulation,
+      spectral_mask_indicator,
+      bdr,
+      pie,
+      min_tari,
+      max_tari,
+      tari_step
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct C1G2LLRPCapabilities {
+  pub supports_block_erase                : bool,
+  pub supports_block_write                : bool,
+  pub supports_block_permalock            : bool,
+  pub supports_tag_recommissioning        : bool,
+  pub supports_umi_method_2               : bool,
+  pub supports_xpc                        : bool,
+  pub max_number_select_filters_per_query : u16
+}
+
+impl C1G2LLRPCapabilities {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 1 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for C1G2LLRPCapabilities"
+      ));
+    }
+
+    let flags = buf.get_u8();
+    let supports_block_erase         = (flags & 0x80) != 0;
+    let supports_block_write         = (flags & 0x40) != 0;
+    let supports_block_permalock     = (flags & 0x20) != 0;
+    let supports_tag_recommissioning = (flags & 0x10) != 0;
+    let supports_umi_method_2        = (flags & 0x08) != 0;
+    let supports_xpc                 = (flags & 0x04) != 0;
+    
+    let max_number_select_filters_per_query = buf.get_u16();
+
+    Ok(C1G2LLRPCapabilities {
+      supports_block_erase,
+      supports_block_write,
+      supports_block_permalock,
+      supports_tag_recommissioning,
+      supports_umi_method_2,
+      supports_xpc,
+      max_number_select_filters_per_query
+    })
   }
 }
 
