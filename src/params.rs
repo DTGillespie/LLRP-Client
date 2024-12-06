@@ -1,8 +1,137 @@
 use std::{fmt, io::{self, Error, ErrorKind}};
 use bytes::{Buf, BytesMut};
-use log::{warn};
+use log::{debug, warn};
 
 use crate::llrp::{LlrpParameter, LlrpParameterType};
+
+#[derive(Debug)]
+pub enum LlrpParameterData {
+  LLRPStatus                (LLRPStatus),
+  GeneralDeviceCapabilities (GeneralDeviceCapabilities),
+  LLRPCapabilities          (LLRPCapabilities),
+  RegulatoryCapabilities    (RegulatoryCapabilities),
+  C1G2LLRPCapabilities      (C1G2LLRPCapabilities),
+  Identification            (Identification)
+}
+
+#[derive(Debug)]
+pub struct TagReportData {
+  pub epc: Vec<u8>
+}
+
+impl fmt::Display for TagReportData {
+  fn fmt(
+    &self, 
+    f: &mut fmt::Formatter<'_>
+  ) -> fmt::Result {
+    
+    let epc_hex = self.epc.iter()
+      .map(|byte| format!("{:02x}", byte))
+      .collect::<Vec<String>>()
+      .join("");
+
+    write!(f, "{}", epc_hex)
+  }
+}
+
+impl TagReportData {
+  
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+    let mut epc = Vec::new();
+
+    let parameters = parse_parameters(&mut buf)?;
+
+    for parameter in parameters {
+      match parameter.param_type {
+
+        LlrpParameterType::EPCData => {
+          let epc_data = EPCData::decode(&parameter.param_value)?;
+          epc = epc_data.epc;
+        }
+
+        LlrpParameterType::EPC96 => {
+          let epc_data = EPCData::decode_epc96(&parameter.param_value)?;
+          epc = epc_data.epc;
+        }
+
+        _ => {
+          warn!("Unhandled sub-parameter type: {:?}", parameter.param_type);
+        }
+      }
+    }
+
+    Ok(TagReportData { epc })
+  }
+}
+
+#[derive(Debug)]
+pub struct EPCData {
+  pub epc: Vec<u8>
+}
+
+impl fmt::Display for EPCData {
+  fn fmt(
+    &self, 
+    f: &mut fmt::Formatter<'_>
+  ) -> fmt::Result {
+    
+    let epc_hex = self.epc.iter()
+      .map(|byte| format!("{:02x}", byte))
+      .collect::<Vec<String>>()
+      .join("");
+
+    write!(f, "{}", epc_hex)
+  }
+}
+
+impl EPCData {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 2 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for EPCData Bit Field Length"
+      ));
+    }
+
+    let bit_field_length = buf.get_u16();
+    let epc_byte_length = ((bit_field_length + 7) / 8) as usize;
+
+    if buf.remaining() < epc_byte_length {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for EPCData EPC field"
+      ));
+    }
+
+    let epc = buf.split_to(epc_byte_length).to_vec();
+
+    Ok(EPCData { epc })
+  }
+
+  pub fn decode_epc96(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    if buf.len() != 12 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "EPC96 data must be 12 bytes",
+      ));
+    }
+
+    let epc = buf.to_vec();
+    Ok(EPCData { epc })
+  }
+}
 
 #[derive(Debug)]
 pub struct LLRPStatus {
@@ -699,121 +828,71 @@ impl C1G2LLRPCapabilities {
 }
 
 #[derive(Debug)]
-pub struct TagReportData {
-  pub epc: Vec<u8>
+pub struct Identification {
+  pub id_type   : u8,
+  pub reader_id : Vec<u8>
 }
 
-impl fmt::Display for TagReportData {
-  fn fmt(
-    &self, 
-    f: &mut fmt::Formatter<'_>
-  ) -> fmt::Result {
-    
-    let epc_hex = self.epc.iter()
-      .map(|byte| format!("{:02x}", byte))
-      .collect::<Vec<String>>()
-      .join("");
-
-    write!(f, "{}", epc_hex)
-  }
-}
-
-impl TagReportData {
-  
+impl Identification {
   pub fn decode(
     buf: &[u8]
   ) -> io::Result<Self> {
+    
+    if buf.len() < 1 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for Identification parameter, missing IDType"
+      ));
+    }
 
-    let mut buf = BytesMut::from(buf);
-    let mut epc = Vec::new();
+    let length = buf.len();
+    debug!("Length: {:?}", length);
 
-    let parameters = parse_parameters(&mut buf)?;
+    let id_type = buf[0];
+    let reader_id = buf[1..].to_vec();
 
-    for parameter in parameters {
-      match parameter.param_type {
+    match id_type {
+      
+      0 => {
 
-        LlrpParameterType::EPCData => {
-          let epc_data = EPCData::decode(&parameter.param_value)?;
-          epc = epc_data.epc;
+        if reader_id.len() < 8 {
+          return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!(
+              "Identification parameter: Expected 8-byte MAX address, received {} bytes",
+              reader_id.len()
+            )
+          ));
+        };
+
+        if reader_id.len() > 8 {
+          warn!("Identification parameter: Extra bytes detected for MAC address: {}", reader_id.len() - 8);
         }
+      }
 
-        LlrpParameterType::EPC96 => {
-          let epc_data = EPCData::decode_epc96(&parameter.param_value)?;
-          epc = epc_data.epc;
+      1 => {
+        // IDType = 1: EPC is variable-length, no additional checks required.
+        if reader_id.is_empty() {
+          warn!("Identification parameter: EPC (IDType=1) is empty");
         }
+      }
 
-        _ => {
-          warn!("Unhandled sub-parameter type: {:?}", parameter.param_type);
-        }
+      _ => {
+        warn!("Unknown IDType in Identification parameter: {}", id_type);
       }
     }
 
-    Ok(TagReportData { epc })
-  }
-}
-
-#[derive(Debug)]
-pub struct EPCData {
-  pub epc: Vec<u8>
-}
-
-impl fmt::Display for EPCData {
-  fn fmt(
-    &self, 
-    f: &mut fmt::Formatter<'_>
-  ) -> fmt::Result {
+    let decoded_length = 1 + reader_id.len();
+    if decoded_length != decoded_length {
+      warn!(
+        "Identification parameter: Expected length ({}) does not match decoded length ({})",
+        length, decoded_length
+    )}
     
-    let epc_hex = self.epc.iter()
-      .map(|byte| format!("{:02x}", byte))
-      .collect::<Vec<String>>()
-      .join("");
-
-    write!(f, "{}", epc_hex)
-  }
-}
-
-impl EPCData {
-  pub fn decode(
-    buf: &[u8]
-  ) -> io::Result<Self> {
-
-    let mut buf = BytesMut::from(buf);
-
-    if buf.remaining() < 2 {
-      return Err(Error::new(
-        ErrorKind::InvalidData,
-        "Buffer too short for EPCData Bit Field Length"
-      ));
-    }
-
-    let bit_field_length = buf.get_u16();
-    let epc_byte_length = ((bit_field_length + 7) / 8) as usize;
-
-    if buf.remaining() < epc_byte_length {
-      return Err(Error::new(
-        ErrorKind::InvalidData,
-        "Buffer too short for EPCData EPC field"
-      ));
-    }
-
-    let epc = buf.split_to(epc_byte_length).to_vec();
-
-    Ok(EPCData { epc })
-  }
-
-  pub fn decode_epc96(
-    buf: &[u8]
-  ) -> io::Result<Self> {
-
-    if buf.len() != 12 {
-      return Err(Error::new(
-        ErrorKind::InvalidData,
-        "EPC96 data must be 12 bytes",
-      ));
-    }
-
-    let epc = buf.to_vec();
-    Ok(EPCData { epc })
+    Ok(Identification {
+      id_type,
+      reader_id
+    })
   }
 }
 

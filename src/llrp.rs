@@ -5,7 +5,7 @@ use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
 use log::{info, debug, warn, error};
 
-use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, C1G2LLRPCapabilities, GeneralDeviceCapabilities, LLRPCapabilities, LLRPStatus, RegulatoryCapabilities, TagReportData}};
+use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, RegulatoryCapabilities, TagReportData}};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
@@ -145,15 +145,6 @@ impl LlrpParameterType {
   ) -> Option<Self> {
     Self::iter().find(|&variant| variant as u16 == value)
   } 
-}
-
-#[derive(Debug)]
-pub enum LlrpParameterData {
-  LLRPStatus                (LLRPStatus),
-  GeneralDeviceCapabilities (GeneralDeviceCapabilities),
-  LLRPCapabilities          (LLRPCapabilities),
-  RegulatoryCapabilities    (RegulatoryCapabilities),
-  C1G2LLRPCapabilities      (C1G2LLRPCapabilities),
 }
 
 /// Represents an LLRP-compliant message.
@@ -585,41 +576,70 @@ impl LlrpResponse {
 
             LlrpParameterType::LLRPStatus => {
               let llrp_status = LLRPStatus::decode(&param.param_value)?;
-              info!("LLRPStatus: {:?}", llrp_status);
+              info!("GetReaderCapabilitiesResponse->LLRPStatus: {:?}", llrp_status);
               parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
             }
 
             LlrpParameterType::GeneralDeviceCapabilities => {
               let gdc = GeneralDeviceCapabilities::decode(&param.param_value)?;
-              info!("GeneralDeviceCapabilities: {:?}", gdc);
+              info!("GetReaderCapabilitiesResponse->GeneralDeviceCapabilities: {:?}", gdc);
               parsed_params.push(LlrpParameterData::GeneralDeviceCapabilities(gdc));
             }
 
             LlrpParameterType::LLRPCapabilities => {
               let llrp_caps = LLRPCapabilities::decode(&param.param_value)?;
-              info!("LLRPCapabilities: {:?}", llrp_caps);
+              info!("GetReaderCapabilitiesResponse->LLRPCapabilities: {:?}", llrp_caps);
               parsed_params.push(LlrpParameterData::LLRPCapabilities(llrp_caps));
             }
 
             LlrpParameterType::RegulatoryCapabilities => {
               let reg_caps = RegulatoryCapabilities::decode(&param.param_value)?;
-              info!("RegulatoryCapabilities: {:?}", reg_caps);
+              info!("GetReaderCapabilitiesResponse->RegulatoryCapabilities: {:?}", reg_caps);
               parsed_params.push(LlrpParameterData::RegulatoryCapabilities(reg_caps));
             }
 
             LlrpParameterType::C1G2LLRPCapabilities=> {
               let c1g2_llrp_caps = C1G2LLRPCapabilities::decode(&param.param_value)?;
-              info!("C1G2LLRPCapabilities: {:?}", c1g2_llrp_caps);
+              info!("GetReaderCapabilitiesResponse->C1G2LLRPCapabilities: {:?}", c1g2_llrp_caps);
               parsed_params.push(LlrpParameterData::C1G2LLRPCapabilities(c1g2_llrp_caps));
             }
 
             _ => {
-              warn!("Unhandled parameter: {:?}", param.param_type);
+              warn!("Unhandled GetReaderCapabilitiesResponse parameter: {:?}", param.param_type);
             }
           }
         }
 
         Ok(LlrpResponseData::ReaderCapabilities(parsed_params))
+      }
+
+      LlrpMessageType::GetReaderConfigResponse => {
+
+        let parameters = parse_parameters(&mut buf)?;
+        let mut parsed_params: Vec<LlrpParameterData> = Vec::new();
+
+        for param in parameters {
+          match param.param_type {
+
+            LlrpParameterType::LLRPStatus => {
+              let llrp_status = LLRPStatus::decode(&param.param_value)?;
+              info!("GetReaderConfigResponse->LLRPStatus: {:?}", llrp_status);
+              parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
+            }
+
+            LlrpParameterType::Identification => {
+              let identification = Identification::decode(&param.param_value)?;
+              info!("GetReaderConfigResponse->Identification: {:?}", identification);
+              parsed_params.push(LlrpParameterData::Identification(identification))
+            }
+
+            _ => {
+              warn!("Unhandled GetReaderConfigResponse parameter: {:?}", param.param_type);
+            }
+          }
+        }
+
+        Ok(LlrpResponseData::ReaderConfig(parsed_params))
       }
 
       LlrpMessageType::ROAccessReport => {

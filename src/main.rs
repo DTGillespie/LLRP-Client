@@ -16,12 +16,13 @@ async fn main() {
   let current_dir = env::current_dir().unwrap();
   let config_file = current_dir.join("config.json");
 
-  let get_reader_capabilities  = true;
-  let get_reader_config        = false;
+  let get_reader_capabilities  = false;
+  let get_reader_config        = true;
 
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
+      /*
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
           
@@ -31,7 +32,7 @@ async fn main() {
           error!("GetReaderCapabilities error: {}", e)
         }
       }
-      /*
+
       if let Err(e) = client.send_delete_rospec(0).await {
         error!("DeleteROSpec error: {}", e);
       }
@@ -39,27 +40,17 @@ async fn main() {
       if let Err(e) = client.send_set_reader_config().await {
         error!("SetReaderConfig error: {}", e);
       }
+      */
 
       if get_reader_config {
         if let Err(e) = client.send_get_reader_config(| response_data | async move {
-          match response_data {
 
-            LlrpResponseData::ReaderConfig(parameters) => {
-              for param in parameters {
-                info!("Received ReaderConfig parameter: {:?}", param);
-              }
-            }
-
-            _ => {
-              warn!("Unexpected response data for GetReaderConfig");
-            }
-
-          }
         }).await {
           error!("GetReaderConfig error: {}", e);
         }
       }
 
+      /*
       if let Err(e) = client.send_enable_events_and_reports().await {
         error!("EnableEventsAndReports error: {}", e);
       }
