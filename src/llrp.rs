@@ -5,7 +5,7 @@ use strum::IntoEnumIterator;
 use once_cell::sync::Lazy;
 use log::{info, debug, warn, error};
 
-use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, AntennaConfiguration, AntennaProperties, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, RegulatoryCapabilities, TagReportData}};
+use crate::{config::{ROSpecConfig, ReaderConfig}, params::{parse_parameters, AntennaConfiguration, AntennaProperties, C1G2LLRPCapabilities, GeneralDeviceCapabilities, Identification, LLRPCapabilities, LLRPStatus, LlrpParameterData, ReaderEventNotificationSpec, RegulatoryCapabilities, TagReportData}};
 
 #[derive(Debug, EnumIter, EnumString, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum LlrpMessageType {
@@ -698,27 +698,33 @@ impl LlrpResponse {
           match param.param_type {
 
             LlrpParameterType::LLRPStatus => {
-              let llrp_status = LLRPStatus::decode(&param.param_value)?;
-              info!("[VAL] GetReaderConfigResponse->LLRPStatus: {:?}", llrp_status);
-              parsed_params.push(LlrpParameterData::LLRPStatus(llrp_status));
+              let var = LLRPStatus::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->LLRPStatus: {:?}", var);
+              parsed_params.push(LlrpParameterData::LLRPStatus(var));
             }
 
             LlrpParameterType::Identification => {
-              let identification = Identification::decode(&param.param_value)?;
-              info!("[VAL] GetReaderConfigResponse->Identification: {:?}", identification);
-              parsed_params.push(LlrpParameterData::Identification(identification));
+              let var = Identification::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->Identification: {:?}", var);
+              parsed_params.push(LlrpParameterData::Identification(var));
             }
 
             LlrpParameterType::AntennaProperties => {
-              let antenna_props = AntennaProperties::decode(&param.param_value)?;
-              info!("[VAL] GetReaderConfigResponse->AntennaProperties: {:?}", antenna_props);
-              parsed_params.push(LlrpParameterData::AntennaProperties(antenna_props));
+              let var = AntennaProperties::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->AntennaProperties: {:?}", var);
+              parsed_params.push(LlrpParameterData::AntennaProperties(var));
             }
 
             LlrpParameterType::AntennaConfiguration => {
-              let antenna_config = AntennaConfiguration::decode(&param.param_value)?;
-              info!("[VAL] GetReaderConfigResponse->AntennaConfiguration: {:?}", antenna_config);
-              parsed_params.push(LlrpParameterData::AntennaConfiguration(antenna_config));
+              let var = AntennaConfiguration::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->AntennaConfiguration: {:?}", var);
+              parsed_params.push(LlrpParameterData::AntennaConfiguration(var));
+            }
+
+            LlrpParameterType::ReaderEventNotificationSpec => {
+              let var = ReaderEventNotificationSpec::decode(&param.param_value)?;
+              info!("[VAL] GetReaderConfigResponse->ReaderEventNotificationSpec: {:?}", var);
+              parsed_params.push(LlrpParameterData::ReaderEventNotificationSpec(var));
             }
 
             _ => {

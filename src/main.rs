@@ -22,6 +22,7 @@ async fn main() {
   match LlrpClient::initialize(config_file.to_str().unwrap()).await {
     Ok(mut client) => {
 
+      /*
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
           
@@ -31,6 +32,7 @@ async fn main() {
           error!("GetReaderCapabilities error: {}", e)
         }
       }
+      */
 
       /*
       if let Err(e) = client.send_delete_rospec(0).await {

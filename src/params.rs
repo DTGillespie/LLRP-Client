@@ -6,14 +6,15 @@ use crate::llrp::{LlrpParameter, LlrpParameterType};
 
 #[derive(Debug)]
 pub enum LlrpParameterData {
-  LLRPStatus                (LLRPStatus),
-  GeneralDeviceCapabilities (GeneralDeviceCapabilities),
-  LLRPCapabilities          (LLRPCapabilities),
-  RegulatoryCapabilities    (RegulatoryCapabilities),
-  C1G2LLRPCapabilities      (C1G2LLRPCapabilities),
-  Identification            (Identification),
-  AntennaProperties         (AntennaProperties),
-  AntennaConfiguration      (AntennaConfiguration),
+  LLRPStatus                  (LLRPStatus),
+  GeneralDeviceCapabilities   (GeneralDeviceCapabilities),
+  LLRPCapabilities            (LLRPCapabilities),
+  RegulatoryCapabilities      (RegulatoryCapabilities),
+  C1G2LLRPCapabilities        (C1G2LLRPCapabilities),
+  Identification              (Identification),
+  AntennaProperties           (AntennaProperties),
+  AntennaConfiguration        (AntennaConfiguration),
+  ReaderEventNotificationSpec (ReaderEventNotificationSpec)
 }
 
 #[derive(Debug)]
@@ -1160,6 +1161,72 @@ impl C1G2SingulationControl {
       session,
       tag_population,
       tag_transit_time
+    })
+  }
+}
+
+#[derive(Debug)]
+pub struct ReaderEventNotificationSpec {
+  pub event_notification_states: Vec<EventNotificationState>
+}
+
+impl ReaderEventNotificationSpec {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let buf = BytesMut::from(buf);
+
+    let sub_parameters = parse_parameters(buf.chunk())?;
+
+    let mut event_notification_states = Vec::new();
+
+    for param in sub_parameters {
+      match param.param_type {
+
+        LlrpParameterType::EventNotificationState => {
+          let event_notification_state = EventNotificationState::decode(&param.param_value)?;
+          event_notification_states.push(event_notification_state);
+        }
+
+        _ => {
+          warn!("Unhandled sub-parameter type in ReaderEventNotificationSpec: {:?}", param.param_type);
+        }
+      }
+    }
+
+    Ok(ReaderEventNotificationSpec { event_notification_states })
+  }
+}
+
+#[derive(Debug)]
+pub struct EventNotificationState {
+  pub event_type         : u16,
+  pub notification_state : bool
+}
+
+impl EventNotificationState {
+  pub fn decode(
+    buf: &[u8]
+  ) -> io::Result<Self> {
+
+    let mut buf = BytesMut::from(buf);
+
+    if buf.remaining() < 3 {
+      return Err(Error::new(
+        ErrorKind::InvalidData,
+        "Buffer too short for EventNotificationState"
+      ));
+    }
+
+    let event_type = buf.get_u16();
+
+    let flags = buf.get_u8();
+    let notification_state = (flags & 0x80) != 0;
+
+    Ok(EventNotificationState {
+      event_type,
+      notification_state
     })
   }
 }
