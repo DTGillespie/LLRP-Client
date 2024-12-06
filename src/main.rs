@@ -1,6 +1,7 @@
+mod config;
+mod params;
 mod llrp;
 mod client;
-mod config;
 
 use std::env;
 use llrp::LlrpResponseData;
@@ -24,23 +25,8 @@ async fn main() {
       if get_reader_capabilities {
         if let Err(e) = client.send_get_reader_capabilities(| response_data | async move {
           
-          info!("Debug response_callback()");
           
-          /*
-          match response_data {
-            
-            LlrpResponseData::ReaderCapabilities(parameters) => {
-              for param in parameters {
-                info!("Received ReaderCapability Parameter: {:?}", param);
-              }
-            }
 
-            _ => {
-              warn!("Unexpected response data for GetReaderCapabilities");
-            }
-
-          }
-          */
         }).await {
           error!("GetReaderCapabilities error: {}", e)
         }

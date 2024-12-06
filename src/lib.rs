@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 mod client;
 mod config;
 mod llrp;
+mod params;
 
 use client::LlrpClient;
 
